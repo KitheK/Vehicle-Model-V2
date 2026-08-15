@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python FSAE tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python deps
+        run: python -m pip install -r requirements.txt
+      - name: Run FSAE unit tests
+        shell: bash
+        run: |
+          export PYTHONPATH="$GITHUB_WORKSPACE/examples/python"
+          python -m unittest fsae.test_openvehicle_xlsx fsae.test_opentrack_xlsx fsae.test_qss_viz
+
+  linux-fsae:
+    name: Linux fsae-6dof
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-include utility"
+      - name: Build
+        run: cmake --build build -j $(nproc)
+      - name: Run fsae6dof tests
+        working-directory: build/src/test/vehicles
+        run: |
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/lib:$GITHUB_WORKSPACE/build/thirdparty/lib:${LD_LIBRARY_PATH:-}"
+          ./vehicles_test --gtest_filter='fsae6dof*'
