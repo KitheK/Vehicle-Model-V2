@@ -1,0 +1,4 @@
+# Python packages for the FSAE QSS / OpenVEHICLE workflow and fastest_lap.py
+numpy>=1.24
+matplotlib>=3.7
+openpyxl>=3.1

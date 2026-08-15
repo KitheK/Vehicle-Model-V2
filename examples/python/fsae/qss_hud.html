@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Fastest-lap HUD</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --fg:#c9d1d9; --muted:#8b949e; --orange:#f5a623;
+          --green:#3fb950; --red:#f85149; --cyan:#00ffff; --mag:#ff00ff; --line:#30363d;
+          --navy:#0b1f4a; --asphalt:#0d1117; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+               font-family: ui-sans-serif, system-ui, sans-serif; }
+  #wrap { display:grid; grid-template-columns: 1fr 380px; grid-template-rows: auto 1fr 172px;
+          height:100%; gap:8px; padding:8px; }
+  header { grid-column:1 / -1; display:flex; align-items:baseline; justify-content:space-between;
+           padding:6px 10px; background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+  header h1 { font-size:18px; margin:0; font-weight:650; }
+  header .meta { color:var(--muted); font-size:13px; }
+  header .lap { color:var(--orange); font-variant-numeric: tabular-nums; font-size:20px; }
+  #stage { position:relative; background:#010409; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  #track { width:100%; height:100%; display:block; }
+  #side { display:flex; flex-direction:column; gap:10px; min-height:0;
+          overflow-y:auto; overflow-x:hidden; scrollbar-gutter:stable; padding-right:4px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; flex:0 0 auto; }
+  .card h2 { margin:0 0 8px; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  #tires-card { flex:0 0 auto; display:flex; flex-direction:column; }
+  #gg, #mini, #driver { width:100%; display:block; }
+  #driver { height:210px; }
+  #gg { height:210px; }
+  #mini { height:180px; }
+  .tires-wrap { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  #car3d { grid-column:1 / -1; width:100%; height:160px; display:block; background:#0a0d12; border-radius:6px; }
+  .tire { border:1px solid var(--line); padding:8px; border-radius:6px;
+          font-family: ui-monospace, monospace; font-size:13px; line-height:1.4; }
+  .tire b { color:var(--orange); }
+  .barfz { height:8px; background:#010409; border:1px solid var(--line); border-radius:3px; margin:5px 0 6px; overflow:hidden; }
+  .barfz > i { display:block; height:100%; }
+  #telem { grid-column:1 / -1; background:var(--panel); border:1px solid var(--line); border-radius:8px;
+           display:flex; flex-direction:column; min-height:0; }
+  #telem-filters { display:flex; flex-wrap:wrap; gap:8px 14px; padding:6px 10px 2px; align-items:center; }
+  #telem-filters label { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--muted);
+                         cursor:pointer; user-select:none; }
+  #telem-filters label.on { color:var(--fg); }
+  #telem-filters i.sw { width:12px; height:8px; border-radius:2px; display:inline-block; }
+  #telem canvas { flex:1; min-height:0; width:100%; display:block; }
+  button { background:#21262d; color:var(--fg); border:1px solid var(--line); border-radius:6px;
+           padding:4px 10px; cursor:pointer; }
+  button:hover { border-color:var(--orange); }
+  .note { font-size:10px; color:var(--muted); margin-top:6px; line-height:1.35; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.1/build/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="wrap">
+  <header>
+    <div>
+      <h1 id="title">HUD</h1>
+      <div class="meta" id="clock">t = 0.00 s</div>
+    </div>
+    <div>
+      <button id="play">Pause</button>
+      <span class="lap" id="lap">0.000 s</span>
+    </div>
+  </header>
+  <div id="stage"><canvas id="track"></canvas></div>
+  <div id="side">
+    <div class="card">
+      <h2>Driver</h2>
+      <canvas id="driver" width="360" height="210"></canvas>
+    </div>
+    <div class="card"><h2>G-G</h2><canvas id="gg" width="360" height="210"></canvas></div>
+    <div class="card" id="tires-card">
+      <h2>Tires</h2>
+      <div class="tires-wrap">
+        <div class="tire" id="tire-fl"></div>
+        <div class="tire" id="tire-fr"></div>
+        <canvas id="car3d" width="360" height="160"></canvas>
+        <div class="tire" id="tire-rl"></div>
+        <div class="tire" id="tire-rr"></div>
+      </div>
+    </div>
+    <div class="card"><h2>Map</h2><canvas id="mini" width="360" height="180"></canvas></div>
+  </div>
+  <div id="telem">
+    <div id="telem-filters" role="group" aria-label="Telemetry channels">
+      <label class="on"><input type="checkbox" data-ch="v" checked/><i class="sw" style="background:#ff00ff"></i> speed</label>
+      <label class="on"><input type="checkbox" data-ch="steer" checked/><i class="sw" style="background:#00ffff"></i> steer</label>
+      <label class="on"><input type="checkbox" data-ch="tps" checked/><i class="sw" style="background:#3fb950"></i> tps</label>
+      <label class="on"><input type="checkbox" data-ch="bps" checked/><i class="sw" style="background:#f85149"></i> bps</label>
+      <label class="on"><input type="checkbox" data-ch="ax" checked/><i class="sw" style="background:#f5a623"></i> ax</label>
+      <label class="on"><input type="checkbox" data-ch="ay" checked/><i class="sw" style="background:#58a6ff"></i> ay</label>
+    </div>
+    <canvas id="strip"></canvas>
+  </div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+
+const D = __PAYLOAD__;
+const N = D.time.length;
+let playing = true, t0 = performance.now(), tSim = 0;
+const CAM = D.camHeight || 80;
+const CAR_CX = 0.26;  /* mid-wheelbase in the 3D car frame */
+const CAR_HALF_W = 1.95;
+const CAR_HALF_H = 0.95;
+const CHANNELS = [
+  {id:'v', arr:() => D.v, color:'#ff00ff'},
+  {id:'steer', arr:() => D.steer, color:'#00ffff'},
+  {id:'tps', arr:() => D.tps, color:'#3fb950'},
+  {id:'bps', arr:() => D.bps, color:'#f85149'},
+  {id:'ax', arr:() => D.ax, color:'#f5a623'},
+  {id:'ay', arr:() => D.ay, color:'#58a6ff'},
+];
+const chOn = Object.fromEntries(CHANNELS.map(c => [c.id, true]));
+
+function lerp(a,b,u){ return a + (b-a)*u; }
+function atTime(t){
+  if (t <= D.time[0]) return 0;
+  if (t >= D.time[N-1]) return N-1;
+  let lo=0, hi=N-1;
+  while (hi-lo>1){ const m=(lo+hi)>>1; if (D.time[m] <= t) lo=m; else hi=m; }
+  return lo + (t - D.time[lo]) / Math.max(1e-9, D.time[hi]-D.time[lo]);
+}
+function samp(arr, f){
+  const i = Math.max(0, Math.min(N-2, Math.floor(f)));
+  return lerp(arr[i], arr[i+1], f-i);
+}
+function headingAt(f){
+  const i = Math.max(0, Math.min(N-2, Math.floor(f)));
+  const dx = D.x[i+1]-D.x[i], dy = D.y[i+1]-D.y[i];
+  if (Math.hypot(dx,dy) < 1e-9) return samp(D.yaw, f);
+  return Math.atan2(dy, dx);
+}
+
+const track = document.getElementById('track');
+const gg = document.getElementById('gg');
+const mini = document.getElementById('mini');
+const driver = document.getElementById('driver');
+const strip = document.getElementById('strip');
+function fit(c){
+  const r = c.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  c.width = Math.max(1, r.width * dpr);
+  c.height = Math.max(1, r.height * dpr);
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {ctx, w:r.width, h:r.height};
+}
+
+function canvasTex(w, h, draw){
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+
+function liveryTextures(){
+  const nose = canvasTex(256, 256, (ctx,w,h)=>{
+    ctx.fillStyle = '#f4f4f4'; ctx.fillRect(0,0,w,h);
+    ctx.fillStyle = '#0b1f4a';
+    ctx.font = 'bold 170px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('1', w*0.52, h*0.55);
+  });
+  const side = canvasTex(512, 128, (ctx,w,h)=>{
+    ctx.fillStyle = '#0b1f4a'; ctx.fillRect(0,0,w,h);
+    const g = ctx.createLinearGradient(0,0,w,0);
+    g.addColorStop(0,'#1e4d8c'); g.addColorStop(0.45,'#3d9ad1'); g.addColorStop(1,'#7ec8e8');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(0,h); ctx.lineTo(40,h*0.55); ctx.lineTo(110,h*0.15); ctx.lineTo(180,h*0.62);
+    ctx.lineTo(260,h*0.08); ctx.lineTo(340,h*0.5); ctx.lineTo(430,h*0.12); ctx.lineTo(w,h*0.35);
+    ctx.lineTo(w,h); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#9fd8f0';
+    ctx.beginPath();
+    ctx.moveTo(80,h); ctx.lineTo(150,h*0.45); ctx.lineTo(220,h); ctx.closePath(); ctx.fill();
+  });
+  const wing = canvasTex(1024, 128, (ctx,w,h)=>{
+    ctx.fillStyle = '#0b1f4a'; ctx.fillRect(0,0,w,h);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 54px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('UBC OKANAGAN RACING', w/2, h/2);
+  });
+  const noseSide = canvasTex(512, 64, (ctx,w,h)=>{
+    ctx.fillStyle = '#f4f4f4'; ctx.fillRect(0,0,w,h);
+    ctx.fillStyle = '#0b1f4a';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('UBC OKANAGAN', w/2, h/2+2);
+  });
+  const carbon = canvasTex(64, 64, (ctx,w,h)=>{
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(0,0,w,h);
+    ctx.fillStyle = '#2a2a2a';
+    for (let i=0;i<8;i++) for (let j=0;j<8;j++){
+      if ((i+j)%2) ctx.fillRect(i*8, j*8, 8, 8);
+    }
+  });
+  carbon.wrapS = carbon.wrapT = THREE.RepeatWrapping;
+  carbon.repeat.set(6, 2);
+  return {nose, side, wing, noseSide, carbon};
+}
+
+function buildUbcoCar(){
+  const T = liveryTextures();
+  const navy = new THREE.MeshStandardMaterial({color:0x0b1f4a, metalness:0.25, roughness:0.42, envMapIntensity:0.6});
+  const white = new THREE.MeshStandardMaterial({color:0xf4f4f4, metalness:0.08, roughness:0.38, map:T.nose});
+  const whitePlain = new THREE.MeshStandardMaterial({color:0xf2f2f2, metalness:0.08, roughness:0.4});
+  const sideMat = new THREE.MeshStandardMaterial({color:0xffffff, metalness:0.2, roughness:0.45, map:T.side});
+  const carbon = new THREE.MeshStandardMaterial({color:0x222222, metalness:0.55, roughness:0.35, map:T.carbon});
+  const rubber = new THREE.MeshStandardMaterial({color:0x111111, metalness:0.05, roughness:0.92});
+  const rimMat = new THREE.MeshStandardMaterial({color:0x2c2c2c, metalness:0.7, roughness:0.28});
+  const metal = new THREE.MeshStandardMaterial({color:0x3a3a3a, metalness:0.8, roughness:0.25});
+  const haloMat = new THREE.MeshStandardMaterial({color:0x111111, metalness:0.4, roughness:0.45});
+  const helmet = new THREE.MeshStandardMaterial({color:0x1a1a1a, metalness:0.15, roughness:0.35});
+  const visor = new THREE.MeshStandardMaterial({color:0x3d7ea6, metalness:0.6, roughness:0.15});
+  const wingMat = new THREE.MeshStandardMaterial({color:0xffffff, metalness:0.2, roughness:0.4, map:T.wing});
+  const letter = new THREE.MeshStandardMaterial({color:0xffffff, metalness:0.1, roughness:0.4, map:T.noseSide});
+
+  const g = new THREE.Group();
+  const add = (mesh, x,y,z)=>{ mesh.position.set(x,y,z); g.add(mesh); return mesh; };
+  const box = (sx,sy,sz, mat)=> new THREE.Mesh(new THREE.BoxGeometry(sx,sy,sz), mat);
+
+  add(box(2.35, 0.05, 1.18, carbon), 0.35, 0.07, 0);
+
+  const nose = box(1.35, 0.22, 0.38, white);
+  add(nose, 1.72, 0.28, 0);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.42, 10), whitePlain);
+  tip.rotation.z = -Math.PI/2;
+  add(tip, 2.52, 0.26, 0);
+  const nsL = box(0.9, 0.08, 0.01, letter); nsL.rotation.y = 0.18;
+  add(nsL, 1.75, 0.32, 0.20);
+  const nsR = box(0.9, 0.08, 0.01, letter); nsR.rotation.y = -0.18;
+  add(nsR, 1.75, 0.32, -0.20);
+
+  const podL = box(1.35, 0.32, 0.28, sideMat);
+  add(podL, 0.35, 0.28, 0.42);
+  const podR = box(1.35, 0.32, 0.28, sideMat);
+  add(podR, 0.35, 0.28, -0.42);
+
+  add(box(0.85, 0.28, 0.62, haloMat), 0.45, 0.42, 0);
+  const helm = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 12), helmet);
+  add(helm, 0.62, 0.58, 0);
+  const vis = new THREE.Mesh(new THREE.SphereGeometry(0.10, 12, 8, 0, Math.PI), visor);
+  vis.rotation.y = Math.PI/2;
+  add(vis, 0.70, 0.58, 0);
+
+  const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.025, 8, 18, Math.PI), haloMat);
+  hoop.rotation.y = Math.PI/2;
+  hoop.rotation.z = Math.PI;
+  add(hoop, 0.35, 0.62, 0);
+
+  add(box(0.22, 0.08, 1.28, carbon), 2.38, 0.10, 0);
+  add(box(0.10, 0.16, 1.22, navy), 2.48, 0.16, 0);
+  add(box(0.22, 0.22, 0.06, carbon), 2.40, 0.18, 0.62);
+  add(box(0.22, 0.22, 0.06, carbon), 2.40, 0.18, -0.62);
+
+  add(box(0.16, 0.06, 1.18, wingMat), -1.02, 0.78, 0);
+  add(box(0.14, 0.05, 1.10, navy), -0.96, 0.90, 0);
+  add(box(0.12, 0.04, 1.02, navy), -0.92, 1.00, 0);
+  add(box(0.22, 0.55, 0.05, navy), -0.98, 0.72, 0.58);
+  add(box(0.22, 0.55, 0.05, navy), -0.98, 0.72, -0.58);
+
+  add(box(0.18, 0.22, 0.18, carbon), -0.72, 0.22, 0);
+  add(box(0.08, 0.08, 0.55, metal), 0.55, 0.18, 0);
+
+  function makeWheel(){
+    const wg = new THREE.Group();
+    const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.245, 0.245, 0.205, 18), rubber);
+    tire.rotation.z = Math.PI/2;
+    wg.add(tire);
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.16, 16), rimMat);
+    rim.rotation.z = Math.PI/2;
+    wg.add(rim);
+    return wg;
+  }
+  const wb = 1.62, tr = 1.22;
+  const rr = makeWheel(); rr.position.set(-0.55, 0.245, -tr/2); g.add(rr);
+  const rl = makeWheel(); rl.position.set(-0.55, 0.245,  tr/2); g.add(rl);
+  const fr = makeWheel(); fr.position.set(wb-0.55, 0.245, -tr/2); g.add(fr);
+  const fl = makeWheel(); fl.position.set(wb-0.55, 0.245,  tr/2); g.add(fl);
+
+  function wish(x0,z0,x1,z1,y){
+    const dx=x1-x0, dz=z1-z0, len=Math.hypot(dx,dz);
+    const b = box(len, 0.02, 0.02, metal);
+    b.position.set((x0+x1)/2, y, (z0+z1)/2);
+    b.rotation.y = Math.atan2(dz, dx);
+    g.add(b);
+  }
+  wish(0.15, 0.22, wb-0.55, tr/2, 0.18);
+  wish(0.15,-0.22, wb-0.55,-tr/2, 0.18);
+  wish(0.15, 0.22, wb-0.55, tr/2, 0.34);
+  wish(0.15,-0.22, wb-0.55,-tr/2, 0.34);
+  wish(-0.15, 0.22, -0.55, tr/2, 0.18);
+  wish(-0.15,-0.22, -0.55,-tr/2, 0.18);
+  wish(-0.15, 0.22, -0.55, tr/2, 0.34);
+  wish(-0.15,-0.22, -0.55,-tr/2, 0.34);
+
+  g.traverse(o => { if (o.isMesh){ o.castShadow = false; o.receiveShadow = false; }});
+  return {group:g, front:[fl, fr], rear:[rl, rr]};
+}
+
+function lights(scene){
+  scene.add(new THREE.HemisphereLight(0xd7e4f5, 0x3a322c, 1.05));
+  const d = new THREE.DirectionalLight(0xffffff, 1.15);
+  d.position.set(4.5, 8, 3.2);
+  scene.add(d);
+  const f = new THREE.DirectionalLight(0x9ec9ff, 0.35);
+  f.position.set(-3, 2, -2);
+  scene.add(f);
+}
+
+const trackCar = buildUbcoCar();
+const cardCar = buildUbcoCar();
+
+const trackScene = new THREE.Scene();
+trackScene.add(trackCar.group);
+lights(trackScene);
+const trackCarCanvas = document.createElement('canvas');
+trackCarCanvas.width = 384; trackCarCanvas.height = 256;
+const trackRenderer = new THREE.WebGLRenderer({canvas:trackCarCanvas, alpha:true, antialias:true, preserveDrawingBuffer:true});
+trackRenderer.setClearColor(0x000000, 0);
+trackRenderer.setSize(384, 256, false);
+const trackCam = new THREE.OrthographicCamera(-CAR_HALF_W, CAR_HALF_W, CAR_HALF_H, -CAR_HALF_H, 0.05, 30);
+trackCam.position.set(CAR_CX, 12, 0);
+trackCam.up.set(0, 0, -1);
+trackCam.lookAt(CAR_CX, 0, 0);
+trackCam.updateProjectionMatrix();
+
+const cardCanvas = document.getElementById('car3d');
+const cardScene = new THREE.Scene();
+cardScene.background = new THREE.Color(0x0a0d12);
+cardScene.add(cardCar.group);
+lights(cardScene);
+const cardRenderer = new THREE.WebGLRenderer({canvas:cardCanvas, antialias:true, alpha:false});
+const cardCam = new THREE.PerspectiveCamera(28, 360/160, 0.05, 40);
+cardCam.position.set(4.6, 2.6, 3.8);
+cardCam.lookAt(CAR_CX, 0.32, 0);
+
+function resizeCard(){
+  const r = cardCanvas.getBoundingClientRect();
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cardRenderer.setPixelRatio(dpr);
+  cardRenderer.setSize(Math.max(1,r.width), Math.max(1,r.height), false);
+  cardCam.aspect = Math.max(0.2, r.width / Math.max(1,r.height));
+  cardCam.updateProjectionMatrix();
+}
+resizeCard();
+window.addEventListener('resize', resizeCard);
+
+function setSteer(car, delta, spin){
+  for (const w of car.front){
+    w.rotation.y = delta;
+    w.children.forEach(ch => { ch.rotation.x = spin; });
+  }
+  for (const w of car.rear){
+    w.rotation.y = 0;
+    w.children.forEach(ch => { ch.rotation.x = spin; });
+  }
+}
+
+function renderTrackCar(delta, spin){
+  setSteer(trackCar, delta, spin);
+  trackRenderer.render(trackScene, trackCam);
+}
+
+function renderCardCar(delta, spin, t){
+  setSteer(cardCar, delta, spin);
+  cardCar.group.rotation.y = 0.18 * Math.sin(t * 0.35);
+  resizeCard();
+  cardRenderer.render(cardScene, cardCam);
+}
+
+function drawUbcoCar(ctx, delta){
+  /* Nose along +X, metres. 2D fallback if WebGL is unavailable. */
+  ctx.save();
+  const wb = 1.62, trackW = 1.22;
+  const rr = {x:-0.55, y:-trackW/2}, rl = {x:-0.55, y: trackW/2};
+  const fr = {x: wb-0.55, y:-trackW/2}, fl = {x: wb-0.55, y: trackW/2};
+  function tire(p, steer){
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(steer||0);
+    ctx.fillStyle = '#111'; ctx.fillRect(-0.28, -0.11, 0.56, 0.22);
+    ctx.fillStyle = '#333'; ctx.fillRect(-0.18, -0.07, 0.36, 0.14);
+    ctx.restore();
+  }
+  tire(rr,0); tire(rl,0); tire(fr, delta); tire(fl, delta);
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath();
+  ctx.moveTo(-0.85, -0.62); ctx.lineTo(1.55, -0.55); ctx.lineTo(1.55, 0.55); ctx.lineTo(-0.85, 0.62);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#0b1f4a';
+  ctx.beginPath();
+  ctx.moveTo(-0.15, -0.48); ctx.lineTo(1.05, -0.50); ctx.lineTo(1.20, -0.28); ctx.lineTo(0.15, -0.22);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-0.15, 0.48); ctx.lineTo(1.05, 0.50); ctx.lineTo(1.20, 0.28); ctx.lineTo(0.15, 0.22);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#f4f4f4';
+  ctx.beginPath();
+  ctx.moveTo(1.10, -0.22); ctx.lineTo(2.35, -0.09); ctx.lineTo(2.55, 0); ctx.lineTo(2.35, 0.09); ctx.lineTo(1.10, 0.22);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#0b1f4a';
+  ctx.font = 'bold 0.28px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.save(); ctx.translate(1.85, 0); ctx.rotate(Math.PI/2); ctx.fillText('1', 0, 0); ctx.restore();
+  ctx.fillStyle = '#0b1f4a'; ctx.fillRect(-1.05, -0.55, 0.18, 1.10);
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 0.11px sans-serif';
+  ctx.save(); ctx.translate(-0.96, 0); ctx.rotate(-Math.PI/2); ctx.fillText('UBC OKANAGAN', 0, 0); ctx.restore();
+  ctx.fillStyle = '#0b1f4a'; ctx.fillRect(2.28, -0.62, 0.14, 1.24);
+  ctx.restore();
+}
+
+function drawTrack(f){
+  const {ctx, w, h} = fit(track);
+  ctx.fillStyle = '#d5d8dc';
+  ctx.fillRect(0,0,w,h);
+  const x = samp(D.x,f), y = samp(D.y,f);
+  const yaw = headingAt(f);
+  const ppm = h / CAM;
+  ctx.save();
+  ctx.translate(w/2, h/2);
+  ctx.scale(ppm, -ppm);
+  ctx.translate(-x, -y);
+
+  if (D.xl && D.xl.length){
+    ctx.beginPath();
+    ctx.moveTo(D.xl[0], D.yl[0]);
+    for (let i=1;i<N;i++) ctx.lineTo(D.xl[i], D.yl[i]);
+    for (let i=N-1;i>=0;i--) ctx.lineTo(D.xr[i], D.yr[i]);
+    ctx.closePath();
+    ctx.fillStyle = '#0d1117';
+    ctx.fill();
+  } else {
+    ctx.strokeStyle = '#0d1117';
+    ctx.lineWidth = (D.halfWidth||3.5)*2;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (let i=0;i<N;i++){ if(i) ctx.lineTo(D.x[i], D.y[i]); else ctx.moveTo(D.x[i], D.y[i]); }
+    ctx.stroke();
+  }
+
+  ctx.save();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 0.12;
+  ctx.setLineDash([1.6, 1.4]);
+  ctx.beginPath();
+  for (let i=0;i<N;i++){ if(i) ctx.lineTo(D.x[i], D.y[i]); else ctx.moveTo(D.x[i], D.y[i]); }
+  ctx.stroke();
+  ctx.restore();
+
+  const i = Math.floor(f);
+  const i0 = Math.max(0, i-220);
+  ctx.lineCap = 'butt';
+  ctx.lineWidth = 0.55;
+  for (let k=i0;k<i;k++){
+    const tps=D.tps[k], bps=D.bps[k];
+    ctx.strokeStyle = tps>=bps ? `rgb(0,${Math.round(140+115*tps)},40)` : `rgb(${Math.round(160+95*bps)},20,20)`;
+    ctx.beginPath(); ctx.moveTo(D.x[k], D.y[k]); ctx.lineTo(D.x[k+1], D.y[k+1]); ctx.stroke();
+  }
+
+  const delta = samp(D.delta,f)*Math.PI/180;
+  const spin = samp(D.s,f) / 0.245;
+  ctx.translate(x, y);
+  ctx.rotate(yaw);
+  try {
+    renderTrackCar(delta, spin);
+    const mw = CAR_HALF_W * 2, mh = CAR_HALF_H * 2;
+    ctx.drawImage(trackCarCanvas, -mw/2, -mh/2, mw, mh);
+  } catch (err) {
+    ctx.translate(-CAR_CX, 0);
+    drawUbcoCar(ctx, delta);
+  }
+  ctx.restore();
+}
+
+function drawDriver(f){
+  const {ctx, w, h} = fit(driver);
+  ctx.fillStyle = '#010409'; ctx.fillRect(0,0,w,h);
+  const tps = Math.max(0, Math.min(1, samp(D.tps,f)));
+  const bps = Math.max(0, Math.min(1, samp(D.bps,f)));
+  const steer = samp(D.steer,f);
+  const barW = Math.max(42, w*0.14), barH = h*0.58, x0 = w*0.07, y0 = h*0.18;
+  function pedal(x, val, color, label){
+    ctx.fillStyle = '#161b22';
+    ctx.fillRect(x, y0, barW, barH);
+    ctx.strokeStyle = '#c9d1d9'; ctx.lineWidth = 2;
+    ctx.strokeRect(x, y0, barW, barH);
+    const fillH = barH * val;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y0 + barH - fillH, barW, fillH);
+    ctx.fillStyle = '#c9d1d9';
+    ctx.font = 'bold 14px ui-sans-serif, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + barW/2, y0 + barH + 18);
+    ctx.fillStyle = color;
+    ctx.font = 'bold 16px ui-sans-serif, sans-serif';
+    ctx.fillText(Math.round(val*100) + '%', x + barW/2, y0 - 8);
+  }
+  pedal(x0, bps, '#f85149', 'BPS');
+  pedal(x0 + barW + 16, tps, '#3fb950', 'TPS');
+  const cx = w*0.72, cy = h*0.48, r = Math.min(w,h)*0.28;
+  ctx.strokeStyle = '#c9d1d9'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke();
+  const a = steer * Math.PI/180;
+  ctx.strokeStyle = '#f5a623'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(cx,cy);
+  ctx.lineTo(cx + r*Math.sin(a), cy - r*Math.cos(a)); ctx.stroke();
+  ctx.fillStyle = '#c9d1d9'; ctx.font = '13px ui-sans-serif, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(steer.toFixed(0) + '°', cx, cy + r + 20);
+}
+
+function drawMini(f){
+  const {ctx, w, h} = fit(mini);
+  ctx.fillStyle = '#010409'; ctx.fillRect(0,0,w,h);
+  let minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9;
+  for (let i=0;i<N;i++){ minx=Math.min(minx,D.x[i]); maxx=Math.max(maxx,D.x[i]);
+    miny=Math.min(miny,D.y[i]); maxy=Math.max(maxy,D.y[i]); }
+  const pad=12, sx=(w-2*pad)/Math.max(1e-6,maxx-minx), sy=(h-2*pad)/Math.max(1e-6,maxy-miny);
+  const sc=Math.min(sx,sy);
+  const X=x=>pad+(x-minx)*sc, Y=y=>h-pad-(y-miny)*sc;
+  ctx.strokeStyle='#30363d'; ctx.lineWidth=7; ctx.beginPath();
+  for (let i=0;i<N;i++){ const px=X(D.x[i]), py=Y(D.y[i]); if(i) ctx.lineTo(px,py); else ctx.moveTo(px,py); }
+  ctx.stroke();
+  ctx.strokeStyle='#58a6ff'; ctx.lineWidth=2; ctx.beginPath();
+  for (let i=0;i<N;i++){ const px=X(D.x[i]), py=Y(D.y[i]); if(i) ctx.lineTo(px,py); else ctx.moveTo(px,py); }
+  ctx.stroke();
+  const px=X(samp(D.x,f)), py=Y(samp(D.y,f)), hd=headingAt(f);
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(-hd);
+  ctx.fillStyle='#f5a623'; ctx.strokeStyle='#fff'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(9,0); ctx.lineTo(-6,5); ctx.lineTo(-3,0); ctx.lineTo(-6,-5); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
+function drawGG(f){
+  const {ctx, w, h} = fit(gg);
+  ctx.fillStyle='#010409'; ctx.fillRect(0,0,w,h);
+  const lim=2.2, cx=w/2, cy=h*0.52, sc=Math.min(w,h)*0.38/lim;
+  const X=ay=>cx+ay*sc, Y=ax=>cy-ax*sc;
+  ctx.strokeStyle='#30363d'; ctx.lineWidth=1;
+  for (let g=0.5; g<=2.001; g+=0.5){
+    ctx.beginPath(); ctx.arc(cx,cy,g*sc,0,Math.PI*2); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.moveTo(cx-lim*sc,cy); ctx.lineTo(cx+lim*sc,cy);
+  ctx.moveTo(cx,cy-lim*sc); ctx.lineTo(cx,cy+lim*sc); ctx.stroke();
+  ctx.strokeStyle='#f5a623'; ctx.lineWidth=1.5;
+  if (D.envAy && D.envAy.length){
+    const draw=(xs,ys)=>{ ctx.beginPath(); for(let i=0;i<xs.length;i++){ const x=X(xs[i]), y=Y(ys[i]); if(i) ctx.lineTo(x,y); else ctx.moveTo(x,y);} ctx.stroke(); };
+    draw(D.envAy, D.envAxMax); draw(D.envAy, D.envAxMin);
+    draw(D.envAy.map(a=>-a), D.envAxMax); draw(D.envAy.map(a=>-a), D.envAxMin);
+  }
+  const i0 = Math.max(0, Math.floor(f)-40);
+  ctx.strokeStyle='#00ffff'; ctx.lineWidth=2; ctx.beginPath();
+  for (let i=i0;i<=Math.floor(f);i++){ const x=X(D.ay[i]), y=Y(D.ax[i]); if(i===i0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }
+  ctx.stroke();
+  ctx.fillStyle='#f5a623'; ctx.beginPath();
+  ctx.arc(X(samp(D.ay,f)), Y(samp(D.ax,f)), 5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle='#8b949e'; ctx.font='11px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('ay →', w-28, cy-6);
+  ctx.fillText('ax', cx+12, 14);
+}
+
+function drawStrip(f){
+  const {ctx, w, h} = fit(strip);
+  ctx.fillStyle='#010409'; ctx.fillRect(0,0,w,h);
+  const tNow = samp(D.time,f), span=8;
+  const tStart = tNow-span;
+  ctx.strokeStyle='#21262d';
+  for (let k=0;k<=8;k++){
+    const x=k/8*w, y=k/8*h;
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+  }
+  function nrm(arr){
+    let lo=1e9, hi=-1e9;
+    for (let i=0;i<N;i++){ if (D.time[i]>=tStart && D.time[i]<=tNow){ lo=Math.min(lo,arr[i]); hi=Math.max(hi,arr[i]); } }
+    if (hi-lo<1e-9) return ()=>0.5;
+    return x => (x-lo)/(hi-lo);
+  }
+  function trace(arr, color){
+    const nn = nrm(arr);
+    ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath();
+    let started=false;
+    for (let i=0;i<N;i++){
+      if (D.time[i]<tStart || D.time[i]>tNow) continue;
+      const x = (D.time[i]-tStart)/span * w;
+      const y = h - 8 - nn(arr[i])*(h-16);
+      if (!started){ ctx.moveTo(x,y); started=true; } else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+  for (const ch of CHANNELS){
+    if (chOn[ch.id]) trace(ch.arr(), ch.color);
+  }
+  ctx.font='11px ui-sans-serif, sans-serif';
+  ctx.textAlign='left';
+  let lx = 8;
+  for (const ch of CHANNELS){
+    if (!chOn[ch.id]) continue;
+    ctx.fillStyle = ch.color;
+    ctx.fillRect(lx, 6, 10, 8);
+    ctx.fillStyle = '#c9d1d9';
+    ctx.fillText(ch.id === 'v' ? 'speed' : ch.id, lx + 14, 14);
+    lx += 64;
+  }
+  if (lx === 8){
+    ctx.fillStyle = '#8b949e';
+    ctx.fillText('no channels selected', 8, 14);
+  }
+}
+
+function tires(f){
+  const names=['fl','fr','rl','rr'];
+  const labels=['FL','FR','RL','RR'];
+  let fzMax = 1;
+  for (const k of names) for (let i=0;i<N;i++) fzMax = Math.max(fzMax, D.fz[k][i]);
+  names.forEach((k,i)=>{
+    const fz=samp(D.fz[k],f), p=samp(D.power[k],f)/1000, e=samp(D.energy[k],f)/1e3;
+    const u = Math.max(0, Math.min(1, fz / fzMax));
+    const col = u > 0.75 ? '#f5a623' : '#3fb950';
+    const el = document.getElementById('tire-'+k);
+    el.innerHTML =
+      `<b>${labels[i]}</b>` +
+      `<div class="barfz"><i style="width:${(u*100).toFixed(0)}%;background:${col}"></i></div>` +
+      `Fz ${fz.toFixed(0)} N<br/>P ${p.toFixed(2)} kW<br/>E ${e.toFixed(2)} kJ`;
+  });
+}
+
+function frame(now){
+  if (playing){
+    tSim = (now - t0)/1000;
+    if (tSim > D.lapTime){ tSim = tSim % D.lapTime; t0 = now - tSim*1000; }
+  }
+  const f = atTime(tSim);
+  const delta = samp(D.delta,f)*Math.PI/180;
+  const spin = samp(D.s,f) / 0.245;
+  document.getElementById('clock').textContent =
+    `t = ${tSim.toFixed(2)} s    ${(samp(D.v,f)*3.6).toFixed(1)} km/h    ax ${samp(D.ax,f).toFixed(2)} g    ay ${samp(D.ay,f).toFixed(2)} g    TPS ${(samp(D.tps,f)*100).toFixed(0)}%    BPS ${(samp(D.bps,f)*100).toFixed(0)}%`;
+  drawTrack(f);
+  drawGG(f); drawMini(f); drawDriver(f); drawStrip(f); tires(f);
+  try { renderCardCar(delta, spin, tSim); } catch (err) {}
+  requestAnimationFrame(frame);
+}
+
+document.getElementById('title').textContent = D.vehicle + '  ·  ' + D.track;
+document.getElementById('title').title = D.notes || '';
+document.getElementById('lap').textContent = D.lapTime.toFixed(3) + ' s';
+document.getElementById('play').onclick = () => {
+  playing = !playing;
+  document.getElementById('play').textContent = playing ? 'Pause' : 'Play';
+  if (playing) t0 = performance.now() - tSim*1000;
+};
+document.querySelectorAll('#telem-filters input[data-ch]').forEach(el => {
+  const id = el.getAttribute('data-ch');
+  const sync = () => {
+    chOn[id] = !!el.checked;
+    el.closest('label').classList.toggle('on', el.checked);
+  };
+  el.addEventListener('input', sync);
+  el.addEventListener('change', sync);
+  sync();
+});
+window.addEventListener('keydown', e => {
+  if (e.code==='Space' && e.target.tagName !== 'INPUT'){
+    e.preventDefault();
+    document.getElementById('play').click();
+  }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

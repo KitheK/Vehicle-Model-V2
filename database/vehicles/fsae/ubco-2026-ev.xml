@@ -1,0 +1,166 @@
+<!--
+  UBCO 2026 EV (FSAE), generated from an OpenVEHICLE-format .xlsx.
+
+  Geometry, mass, aero, and motor numbers come from the workbook Info /
+  Torque Curve / FastestLap sheets. Pacejka shape coefficients that are
+  not in OpenVEHICLE stay as placeholders until Hoosier TTC data is fitted.
+-->
+<vehicle type="fsae-6dof">
+    <front-axle model="axle-car">
+        <track units="m">1.225</track>
+        <stiffness>
+            <wheel-rate>130000</wheel-rate>
+            <antiroll>11260</antiroll>
+            <damper>1500</damper>
+        </stiffness>
+        <inertia>0.5</inertia>
+        <smooth_throttle_coeff>0.01</smooth_throttle_coeff>
+        <beta-steering>
+            <left>0.0</left>
+            <right>0.0</right>
+        </beta-steering>
+        <kinematics>
+            <camber_static>-0.01745</camber_static>
+            <camber_gain_roll>0.3</camber_gain_roll>
+            <toe_static>0</toe_static>
+            <toe_gain_roll>0</toe_gain_roll>
+        </kinematics>
+        <brakes>
+            <max_torque units="N.m">1200</max_torque>
+        </brakes>
+    </front-axle>
+
+    <rear-axle model="axle-car">
+        <track units="m">1.22</track>
+        <stiffness>
+            <wheel-rate>143900</wheel-rate>
+            <antiroll>11160</antiroll>
+            <damper>1400</damper>
+        </stiffness>
+        <inertia>0.5</inertia>
+        <smooth_throttle_coeff>0.01</smooth_throttle_coeff>
+        <differential_stiffness units="N.m.s/rad">80</differential_stiffness>
+        <brakes>
+            <max_torque units="N.m">1200</max_torque>
+        </brakes>
+        <engine>
+            <maximum-power units="kW">80</maximum-power>
+            <peak-torque units="N.m">240</peak-torque>
+            <gear-ratio>4.8</gear-ratio>
+        </engine>
+        <regen_coefficient>0.3</regen_coefficient>
+        <kinematics>
+            <camber_static>-0.01745</camber_static>
+            <camber_gain_roll>0.3</camber_gain_roll>
+            <toe_static>0</toe_static>
+            <toe_gain_roll>0</toe_gain_roll>
+        </kinematics>
+    </rear-axle>
+
+    <chassis model="chassis-car">
+        <com>0.0 0.0 -0.25</com>
+        <front_axle>0.789 0.0 0.047</front_axle>
+        <rear_axle>-0.831 0.0 0.047</rear_axle>
+        <mass>277.2</mass>
+        <inertia>
+            <Ixx> 30 </Ixx>  <Ixy> 0.0  </Ixy> <Ixz> 5  </Ixz>
+            <Iyx> 0.0  </Iyx>  <Iyy> 90 </Iyy> <Iyz> 0.0  </Iyz>
+            <Izx> 5  </Izx>  <Izy> 0.0  </Izy> <Izz> 110 </Izz>
+        </inertia>
+        <aerodynamics>
+            <rho>1.2</rho>
+            <cd>1.4</cd>
+            <cl>3.77</cl>
+            <area units="m2">1.14</area>
+        </aerodynamics>
+        <aero-maps>
+            <dCl_dz>-8</dCl_dz>
+            <dCl_dmu>2</dCl_dmu>
+            <dCd_dz>-2</dCd_dz>
+            <dCd_dmu>0.5</dCd_dmu>
+        </aero-maps>
+        <tire-thermal>
+            <capacity>900</capacity>
+            <cooling>15</cooling>
+            <t-ambient>298.15</t-ambient>
+            <t-optimal>353.15</t-optimal>
+            <grip-sensitivity>0.3</grip-sensitivity>
+        </tire-thermal>
+        <pressure_center>-0.053 0.0 -0.25</pressure_center>
+        <brake_bias>0.53</brake_bias>
+    </chassis>
+
+    <rear-tire model="tire-pacejka" type="normal">
+        <radius>0.203</radius>
+        <radial-stiffness>240000</radial-stiffness>
+        <radial-damping>1000</radial-damping>
+        <nominal-vertical-load>680</nominal-vertical-load>
+        <lambdaFz0>1.6</lambdaFz0>
+        <Fz-max-ref2>1.0</Fz-max-ref2>
+        <longitudinal>
+            <pure>
+                <pCx1>2.3</pCx1>
+                <pDx1>0.9</pDx1>
+                <pEx1>0.95</pEx1>
+                <pKx1>20.0</pKx1>
+                <pKx2>1.0</pKx2>
+                <pKx3>-0.5</pKx3>
+            </pure>
+            <combined>
+                <rBx1>14.0</rBx1>
+                <rCx1>1.0</rCx1>
+            </combined>
+        </longitudinal>
+        <lateral>
+            <pure>
+                <pCy1>2.3</pCy1>
+                <pDy1>1.5</pDy1>
+                <pEy1>0.9</pEy1>
+                <pKy1>37.6</pKy1>
+                <pKy2>1.6</pKy2>
+                <pKy4>2.0</pKy4>
+            </pure>
+            <combined>
+                <rBy1>12.0</rBy1>
+                <rCy1>0.6</rCy1>
+            </combined>
+        </lateral>
+    </rear-tire>
+
+    <front-tire model="tire-pacejka" type="normal">
+        <radius>0.203</radius>
+        <radial-stiffness>240000</radial-stiffness>
+        <radial-damping>1000</radial-damping>
+        <nominal-vertical-load>680</nominal-vertical-load>
+        <lambdaFz0>1.6</lambdaFz0>
+        <Fz-max-ref2>1.0</Fz-max-ref2>
+        <longitudinal>
+            <pure>
+                <pCx1>2.3</pCx1>
+                <pDx1>0.9</pDx1>
+                <pEx1>0.95</pEx1>
+                <pKx1>20.0</pKx1>
+                <pKx2>1.0</pKx2>
+                <pKx3>-0.5</pKx3>
+            </pure>
+            <combined>
+                <rBx1>14.0</rBx1>
+                <rCx1>1.0</rCx1>
+            </combined>
+        </longitudinal>
+        <lateral>
+            <pure>
+                <pCy1>2.3</pCy1>
+                <pDy1>1.5</pDy1>
+                <pEy1>0.9</pEy1>
+                <pKy1>37.6</pKy1>
+                <pKy2>1.6</pKy2>
+                <pKy4>2.0</pKy4>
+            </pure>
+            <combined>
+                <rBy1>12.0</rBy1>
+                <rCy1>0.6</rCy1>
+            </combined>
+        </lateral>
+    </front-tire>
+</vehicle>
