@@ -89,6 +89,18 @@ class TestQssStudio(unittest.TestCase):
         self.assertTrue(any(f["description"] == "Total Mass" for f in data["car"]["fields"]))
         self.assertGreater(data["map"]["length_m"], 1800.0)
 
+    def test_preview_skidpad_map(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "skidpad.xlsx"
+            write_fsae_skidpad_xlsx(path)
+            from fsae.xlsx_kit import preview_workbook
+
+            data = preview_workbook(path)
+            self.assertEqual(data["kind"], "map")
+            self.assertEqual(data["name"], "FSAE Skidpad")
+            self.assertAlmostEqual(data["length_m"], 114.0, places=6)
+            self.assertEqual(len(data["shape"]), 6)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -303,3 +303,39 @@ def gg_from_driver_xlsx(path: str | Path):
         return GGTable(speeds=[speed], ay=[ay], ax_max=[ax_max], ax_min=[ax_min])
     finally:
         wb.close()
+
+
+def preview_workbook(path: str | Path) -> Dict[str, Any]:
+    """Parse a Car, Map, or Driver .xlsx for the Studio Process button."""
+    path = Path(path)
+    kind = detect_kind(path)
+    if kind == "car":
+        fields = list_car_fields(path)
+        name = next((f["value"] for f in fields if f["description"] == "Name"), path.stem)
+        return {"kind": "car", "name": name, "fields": fields}
+    if kind == "map":
+        from fsae.opentrack_xlsx import read_opentrack_info, read_opentrack_shape
+
+        info = read_opentrack_info(path)
+        shape = [{"type": k, "length": L, "radius": r} for k, L, r in read_opentrack_shape(path)]
+        return {
+            "kind": "map",
+            "name": info.name,
+            "info": {
+                "name": info.name,
+                "country": info.country,
+                "city": info.city,
+                "type": info.kind,
+                "configuration": info.configuration,
+                "direction": info.direction,
+                "mirror": info.mirror,
+            },
+            "shape": shape,
+            "length_m": sum(s["length"] for s in shape),
+        }
+    data = read_driver_xlsx(path)
+    return {
+        "kind": "driver",
+        "info": data["info"],
+        "samples": len(data["channels"].get("distance_m") or []),
+    }

@@ -33,7 +33,10 @@
   .hint { font-size:12px; color:var(--muted); margin:0 0 10px; line-height:1.4; }
   .drop { border:1px dashed #afb8c1; border-radius:8px; padding:10px; background:#f6f8fa; margin-bottom:10px; }
   .drop input { width:100%; }
+  .drop .row { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .drop .row button { flex:0 0 auto; padding:6px 10px; }
   .fname { font-size:12px; color:var(--muted); margin-top:4px; }
+  .links a { color:var(--orange); margin-right:14px; font-weight:650; }
   .fields { max-height:520px; overflow:auto; border:1px solid var(--line); border-radius:6px; }
   table { width:100%; border-collapse:collapse; font-size:12px; }
   th, td { border-bottom:1px solid #eee; padding:4px 6px; text-align:left; vertical-align:middle; }
@@ -48,7 +51,7 @@
 <header>
   <div>
     <h1>Studio</h1>
-    <div class="meta">Upload Car / Map / Driver workbooks or edit the UBCO 2026 EV defaults, then run QSS.</div>
+    <div class="meta">Process a Car / Map / Driver .xlsx, then calculate. HUD and MATLAB reload from that run.</div>
   </div>
   <nav>
     <a href="hud.html">HUD</a>
@@ -58,18 +61,23 @@
 </header>
 <div id="page">
   <div class="toolbar">
-    <button class="primary" id="run">Run simulation</button>
+    <button class="primary" id="run">Process uploads &amp; calculate</button>
     <button id="reset">Reset defaults</button>
     <label>v cap [m/s] <input id="vcap" type="number" step="1" value="40"/></label>
     <label><input id="synthetic" type="checkbox" checked/> synthetic G-G</label>
+    <span class="links">
+      <a id="open-hud" href="hud.html" target="qss-hud">Open HUD</a>
+      <a id="open-matlab" href="results.html" target="qss-matlab">Open MATLAB</a>
+    </span>
     <span class="status" id="status"></span>
   </div>
   <div class="cols">
     <section class="card">
       <h2>Car</h2>
-      <p class="hint">Default is UBCO 2026 EV. Upload an OpenVEHICLE .xlsx or edit values below (mass, power, aero, tires, 6DOF FastestLap fields).</p>
+      <p class="hint">Default is UBCO 2026 EV. Choose an OpenVEHICLE .xlsx, click Process, then calculate. You can also edit values below.</p>
       <div class="drop">
         <input id="car-file" type="file" accept=".xlsx"/>
+        <div class="row"><button type="button" id="car-process">Process car file</button></div>
         <div class="fname" id="car-name">Using database default</div>
       </div>
       <input class="search" id="car-search" placeholder="Filter car fields…"/>
@@ -80,9 +88,10 @@
     </section>
     <section class="card">
       <h2>Endurance map</h2>
-      <p class="hint">Default is the 2019 Endurance Shape workbook. Upload a Map .xlsx or edit sections (Straight / Left / Right).</p>
+      <p class="hint">Default is 2019 Endurance. Choose a Map .xlsx (Info + Shape), click Process to load sections, then calculate to rebuild HUD and MATLAB.</p>
       <div class="drop">
         <input id="map-file" type="file" accept=".xlsx"/>
+        <div class="row"><button type="button" id="map-process">Process map file</button></div>
         <div class="fname" id="map-name">Using database default</div>
       </div>
       <table>
@@ -100,9 +109,10 @@
     </section>
     <section class="card">
       <h2>Driver / 6DOF</h2>
-      <p class="hint">Optional. Drop a Driver .xlsx (Info + Channels + Envelope). If Envelope is present it becomes the G-G table for the lap; otherwise synthetic or live gg_diagram is used. The run always writes a new driver.xlsx.</p>
+      <p class="hint">Optional Driver .xlsx. Process loads it; calculate uses its Envelope as the G-G table when present and writes a new driver.xlsx.</p>
       <div class="drop">
         <input id="driver-file" type="file" accept=".xlsx"/>
+        <div class="row"><button type="button" id="driver-process">Process driver file</button></div>
         <div class="fname" id="driver-name">No upload — simulation will reconstruct channels</div>
       </div>
       <div id="driver-last" class="hint"></div>
@@ -195,6 +205,48 @@ function collectMapInfo() {
   };
 }
 
+async function previewFile(kind, inputId) {
+  const input = $(inputId);
+  if (!input.files[0]) throw new Error('Choose a .xlsx file first');
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  fd.append('expect', kind);
+  const r = await fetch('/api/preview', { method: 'POST', body: fd });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+function applyPreview(kind, data, filename) {
+  if (kind === 'car') {
+    defaults = defaults || {};
+    defaults.car = { name: data.name, fields: data.fields };
+    renderCar(data.fields);
+    $('car-name').textContent = 'Processed ' + filename + ' · ' + (data.name || 'car');
+  } else if (kind === 'map') {
+    renderMap({ info: data.info, shape: data.shape, length_m: data.length_m });
+    $('map-name').textContent = 'Processed ' + filename + ' · ' + (data.name || 'map') +
+      ' · ' + data.length_m.toFixed(1) + ' m · ' + data.shape.length + ' sections';
+  } else {
+    const info = data.info || {};
+    $('driver-name').textContent = 'Processed ' + filename;
+    $('driver-last').textContent = `${info.Vehicle || ''} on ${info.Track || ''} · ${info['Lap time [s]'] || ''} s · ${data.samples || 0} samples`;
+  }
+}
+
+async function processKind(kind, inputId) {
+  setStatus('Processing ' + kind + ' file…');
+  const data = await previewFile(kind, inputId);
+  applyPreview(kind, data, $(inputId).files[0].name);
+  setStatus('Processed ' + kind + '. Click Process uploads & calculate for new HUD / MATLAB.', 'ok');
+}
+
+function stampLinks() {
+  const t = Date.now();
+  $('open-hud').href = 'hud.html?t=' + t;
+  $('open-matlab').href = 'results.html?t=' + t;
+}
+
 async function loadDefaults() {
   const r = await fetch('/api/defaults');
   defaults = await r.json();
@@ -211,15 +263,20 @@ async function loadDefaults() {
   }
 }
 
-function fileLabel(input, label, fallback) {
-  input.addEventListener('change', () => {
-    label.textContent = input.files[0] ? 'Upload: ' + input.files[0].name : fallback;
-  });
-}
+$('car-process').onclick = () => processKind('car', 'car-file').catch(err => setStatus(String(err.message || err), 'err'));
+$('map-process').onclick = () => processKind('map', 'map-file').catch(err => setStatus(String(err.message || err), 'err'));
+$('driver-process').onclick = () => processKind('driver', 'driver-file').catch(err => setStatus(String(err.message || err), 'err'));
 
-fileLabel($('car-file'), $('car-name'), 'Using database default');
-fileLabel($('map-file'), $('map-name'), 'Using database default');
-fileLabel($('driver-file'), $('driver-name'), 'No upload — simulation will reconstruct channels');
+$('car-file').addEventListener('change', () => {
+  if ($('car-file').files[0]) processKind('car', 'car-file').catch(err => setStatus(String(err.message || err), 'err'));
+});
+$('map-file').addEventListener('change', () => {
+  if ($('map-file').files[0]) processKind('map', 'map-file').catch(err => setStatus(String(err.message || err), 'err'));
+});
+$('driver-file').addEventListener('change', () => {
+  if ($('driver-file').files[0]) processKind('driver', 'driver-file').catch(err => setStatus(String(err.message || err), 'err'));
+});
+
 $('car-search').addEventListener('input', () => {
   const q = $('car-search').value.trim().toLowerCase();
   for (const tr of $('car-table').querySelectorAll('tbody tr')) {
@@ -232,17 +289,23 @@ $('reset').onclick = () => { $('car-file').value=''; $('map-file').value=''; $('
 $('run').onclick = async () => {
   const btn = $('run');
   btn.disabled = true;
-  setStatus('Running QSS…');
-  const fd = new FormData();
-  if ($('car-file').files[0]) fd.append('car', $('car-file').files[0]);
-  if ($('map-file').files[0]) fd.append('map', $('map-file').files[0]);
-  if ($('driver-file').files[0]) fd.append('driver', $('driver-file').files[0]);
-  fd.append('overrides', JSON.stringify(collectOverrides()));
-  fd.append('map_info', JSON.stringify(collectMapInfo()));
-  fd.append('shape', JSON.stringify(collectShape()));
-  fd.append('v_cap', $('vcap').value);
-  fd.append('synthetic', $('synthetic').checked ? 'true' : 'false');
+  setStatus('Calculating QSS lap…');
   try {
+    if ($('map-file').files[0] && !$('map-name').textContent.startsWith('Processed')) {
+      await processKind('map', 'map-file');
+    }
+    if ($('car-file').files[0] && !$('car-name').textContent.startsWith('Processed')) {
+      await processKind('car', 'car-file');
+    }
+    const fd = new FormData();
+    if ($('car-file').files[0]) fd.append('car', $('car-file').files[0]);
+    if ($('map-file').files[0]) fd.append('map', $('map-file').files[0]);
+    if ($('driver-file').files[0]) fd.append('driver', $('driver-file').files[0]);
+    fd.append('overrides', JSON.stringify(collectOverrides()));
+    fd.append('map_info', JSON.stringify(collectMapInfo()));
+    fd.append('shape', JSON.stringify(collectShape()));
+    fd.append('v_cap', $('vcap').value);
+    fd.append('synthetic', $('synthetic').checked ? 'true' : 'false');
     const r = await fetch('/api/run', { method: 'POST', body: fd });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || r.statusText);
@@ -252,7 +315,10 @@ $('run').onclick = async () => {
       `${sp.min.toFixed(1)} / ${sp.mean.toFixed(1)} / ${sp.max.toFixed(1)} km/h`,
       'ok'
     );
-    $('driver-last').textContent = `Wrote driver.xlsx (${data.n} samples). Open HUD or MATLAB.`;
+    $('driver-last').textContent = `Wrote driver.xlsx (${data.n} samples). HUD and MATLAB updated.`;
+    stampLinks();
+    window.open($('open-matlab').href, 'qss-matlab');
+    window.open($('open-hud').href, 'qss-hud');
   } catch (err) {
     setStatus(String(err.message || err), 'err');
   } finally {

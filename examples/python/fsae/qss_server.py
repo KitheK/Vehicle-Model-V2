@@ -26,7 +26,7 @@ if str(_HERE.parent) not in sys.path:
 
 from fsae.opentrack_xlsx import write_map_xlsx  # noqa: E402
 from fsae.qss_job import DEFAULT_CAR, DEFAULT_MAP, defaults_payload, run_qss_job  # noqa: E402
-from fsae.xlsx_kit import detect_kind, patch_car_xlsx  # noqa: E402
+from fsae.xlsx_kit import detect_kind, patch_car_xlsx, preview_workbook  # noqa: E402
 
 MAX_BODY = 25 * 1024 * 1024
 
@@ -90,6 +90,10 @@ class StudioHandler(SimpleHTTPRequestHandler):
         if path == "/api/defaults":
             self._send_json(defaults_payload(self.out_dir))
             return
+        if path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+            return
         rel = path.lstrip("/")
         candidate = self.out_dir / rel
         if candidate.is_file() and candidate.resolve().is_relative_to(self.out_dir.resolve()):
@@ -101,9 +105,6 @@ class StudioHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
-        if parsed.path != "/api/run":
-            self.send_error(404, "Not found")
-            return
         length = int(self.headers.get("Content-Length") or 0)
         if length > MAX_BODY:
             self._send_json({"error": "upload too large"}, 413)
@@ -115,12 +116,37 @@ class StudioHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json({"error": f"bad multipart: {exc}"}, 400)
             return
+        if parsed.path == "/api/preview":
+            try:
+                self._send_json(self._preview(fields, files))
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 400)
+            return
+        if parsed.path != "/api/run":
+            self.send_error(404, "Not found")
+            return
         try:
             result = self._run(fields, files)
         except Exception as exc:
             self._send_json({"error": str(exc)}, 400)
             return
         self._send_json(result)
+
+    def _preview(self, fields: Dict[str, str], files: Dict[str, Tuple[str, bytes]]) -> Dict[str, Any]:
+        blob_pair = files.get("file") or files.get("map") or files.get("car") or files.get("driver")
+        if not blob_pair or not blob_pair[1]:
+            raise ValueError("choose a .xlsx file to process")
+        name, blob = blob_pair
+        tmp = Path(tempfile.mkdtemp(prefix="qss_preview_"))
+        try:
+            path = _save_upload(tmp, name or "upload.xlsx", blob)
+            data = preview_workbook(path)
+            expect = (fields.get("expect") or "").strip().lower()
+            if expect and data["kind"] != expect:
+                raise ValueError(f"that workbook is a {data['kind']} file, not a {expect} file")
+            return data
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def _run(self, fields: Dict[str, str], files: Dict[str, Tuple[str, bytes]]) -> Dict[str, Any]:
         tmp = Path(tempfile.mkdtemp(prefix="qss_studio_"))
@@ -138,7 +164,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 name, blob = files["map"]
                 map_up = _save_upload(tmp, name or "map.xlsx", blob)
                 if detect_kind(map_up) != "map":
-                    raise ValueError("uploaded map file is not a Map workbook")
+                    raise ValueError("uploaded map file is not a Map workbook (need Info + Shape)")
                 map_src = map_up
             if "driver" in files and files["driver"][1]:
                 name, blob = files["driver"]
@@ -149,10 +175,16 @@ class StudioHandler(SimpleHTTPRequestHandler):
 
             overrides = json.loads(fields.get("overrides") or "[]")
             car_xlsx = tmp / "car.xlsx"
-            patch_car_xlsx(car_src, car_xlsx, overrides)
+            # Same rule for cars: an upload wins; otherwise patch the default from the editor.
+            if "car" in files and files["car"][1]:
+                shutil.copyfile(car_src, car_xlsx)
+            else:
+                patch_car_xlsx(car_src, car_xlsx, overrides)
 
             map_xlsx = map_src
-            if fields.get("shape"):
+            # An uploaded Map workbook is the source of truth. The editor Shape table
+            # is only written when the user did not attach a map file.
+            if not ("map" in files and files["map"][1]) and fields.get("shape"):
                 from fsae.opentrack_xlsx import OpenTrackInfo
 
                 info_raw = json.loads(fields.get("map_info") or "{}")
