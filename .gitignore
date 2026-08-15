@@ -15,3 +15,5 @@ build/
 docs/build/
 .venv/
 qss_out/
+examples/python/fsae/models/*.glb
+

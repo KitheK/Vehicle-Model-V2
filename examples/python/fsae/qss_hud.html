@@ -51,7 +51,10 @@
   .note { font-size:10px; color:var(--muted); margin-top:6px; line-height:1.35; }
 </style>
 <script type="importmap">
-{ "imports": { "three": "https://unpkg.com/three@0.160.1/build/three.module.js" } }
+{ "imports": {
+    "three": "https://unpkg.com/three@0.160.1/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.1/examples/jsm/"
+} }
 </script>
 </head>
 <body>
@@ -104,14 +107,18 @@
 </div>
 <script type="module">
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const D = __PAYLOAD__;
 const N = D.time.length;
 let playing = true, t0 = performance.now(), tSim = 0;
 const CAM = D.camHeight || 80;
-const CAR_CX = 0.26;  /* mid-wheelbase in the 3D car frame */
-const CAR_HALF_W = 1.95;
-const CAR_HALF_H = 0.95;
+let CAR_CX = 0.26;  /* mid-wheelbase in the 3D car frame; updated if a GLB loads */
+let CAR_HALF_W = 1.95;
+let CAR_HALF_H = 0.95;
+const MODEL_PATH = 'car.glb';
+const TARGET_WHEELBASE_M = 1.62;
+const WHEEL_NODE_NAMES = ['WHEEL_LF', 'WHEEL_RF', 'WHEEL_LR', 'WHEEL_RR'];
 const CHANNELS = [
   {id:'v', arr:() => D.v, color:'#ff00ff'},
   {id:'steer', arr:() => D.steer, color:'#00ffff'},
@@ -314,42 +321,213 @@ function buildUbcoCar(){
 
 function lights(scene){
   scene.add(new THREE.HemisphereLight(0xd7e4f5, 0x3a322c, 1.05));
-  const d = new THREE.DirectionalLight(0xffffff, 1.15);
+  const d = new THREE.DirectionalLight(0xffffff, 1.35);
   d.position.set(4.5, 8, 3.2);
   scene.add(d);
-  const f = new THREE.DirectionalLight(0x9ec9ff, 0.35);
+  const f = new THREE.DirectionalLight(0x9ec9ff, 0.45);
   f.position.set(-3, 2, -2);
   scene.add(f);
+  const rim = new THREE.DirectionalLight(0xffe6d2, 0.55);
+  rim.position.set(-2.5, 3.5, 5.5);
+  scene.add(rim);
 }
 
-const trackCar = buildUbcoCar();
-const cardCar = buildUbcoCar();
+function configureRenderer(r){
+  r.outputColorSpace = THREE.SRGBColorSpace;
+  r.toneMapping = THREE.ACESFilmicToneMapping;
+  r.toneMappingExposure = 1.15;
+}
 
-const trackScene = new THREE.Scene();
-trackScene.add(trackCar.group);
-lights(trackScene);
+function applyAuthoredMaterials(root){
+  root.traverse(obj => {
+    if (!obj.isMesh) return;
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    for (const m of mats){
+      if (!m) continue;
+      if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+      if (m.emissiveMap) m.emissiveMap.colorSpace = THREE.SRGBColorSpace;
+      if (m.envMapIntensity == null || m.envMapIntensity === 1) m.envMapIntensity = 1.0;
+    }
+  });
+}
+
+function wheelCenters(root){
+  root.updateMatrixWorld(true);
+  const out = {};
+  root.traverse(obj => {
+    if (!WHEEL_NODE_NAMES.includes(obj.name)) return;
+    const box = new THREE.Box3().setFromObject(obj);
+    if (!box.isEmpty()) out[obj.name] = box.getCenter(new THREE.Vector3());
+  });
+  return out;
+}
+
+function wheelbaseM(centers){
+  const f = [], r = [];
+  if (centers.WHEEL_LF) f.push(centers.WHEEL_LF);
+  if (centers.WHEEL_RF) f.push(centers.WHEEL_RF);
+  if (centers.WHEEL_LR) r.push(centers.WHEEL_LR);
+  if (centers.WHEEL_RR) r.push(centers.WHEEL_RR);
+  if (f.length !== 2 || r.length !== 2) return null;
+  const fm = f[0].clone().add(f[1]).multiplyScalar(0.5);
+  const rm = r[0].clone().add(r[1]).multiplyScalar(0.5);
+  return fm.distanceTo(rm);
+}
+
+function pivotNamedWheels(root){
+  const nodes = [];
+  root.traverse(obj => { if (WHEEL_NODE_NAMES.includes(obj.name)) nodes.push(obj); });
+  const pivots = [];
+  for (const wheel of nodes){
+    const parent = wheel.parent;
+    if (!parent) continue;
+    root.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(wheel);
+    if (box.isEmpty()) continue;
+    const hubWorld = box.getCenter(new THREE.Vector3());
+    const hubLocal = hubWorld.clone();
+    parent.worldToLocal(hubLocal);
+    const pivot = new THREE.Group();
+    pivot.name = wheel.name + '_pivot';
+    parent.add(pivot);
+    pivot.position.copy(hubLocal);
+    pivot.attach(wheel);
+    const axle = new THREE.Group();
+    axle.name = wheel.name + '_axle';
+    axle.rotation.y = -Math.PI / 2;
+    pivot.add(axle);
+    axle.attach(wheel);
+    pivots.push(pivot);
+  }
+  return pivots;
+}
+
+function slotWheels(pivots){
+  const items = pivots.map(p => {
+    p.updateMatrixWorld(true);
+    const w = new THREE.Vector3();
+    p.getWorldPosition(w);
+    return {p, x:w.x, z:w.z};
+  });
+  items.sort((a,b) => b.x - a.x);
+  const front = items.slice(0, 2).sort((a,b) => b.z - a.z);
+  const rear = items.slice(2).sort((a,b) => b.z - a.z);
+  return {
+    front: [front[0].p, front[1].p],
+    rear: [rear[0].p, rear[1].p],
+  };
+}
+
+function fitStampFrustum(root){
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  CAR_HALF_W = size.x * 0.5 + 0.12;
+  CAR_HALF_H = size.z * 0.5 + 0.12;
+  CAR_CX = center.x;
+  if (trackCam){
+    trackCam.left = -CAR_HALF_W; trackCam.right = CAR_HALF_W;
+    trackCam.top = CAR_HALF_H; trackCam.bottom = -CAR_HALF_H;
+    trackCam.position.set(CAR_CX, 12, 0);
+    trackCam.lookAt(CAR_CX, 0, 0);
+    trackCam.updateProjectionMatrix();
+  }
+}
+
+function countTriangles(root){
+  let n = 0;
+  root.traverse(obj => {
+    if (!obj.isMesh || !obj.geometry) return;
+    const g = obj.geometry;
+    const idx = g.index;
+    n += idx ? idx.count / 3 : g.attributes.position.count / 3;
+  });
+  return n;
+}
+
+function normalizeGltfScene(scene){
+  /* Mesh/RootNode: +Z forward, +Y up, +X left, metres. Sketchfab wrapper
+     scales 0.01 (so GLTFLoader world is ~cm). Rotate +Y 90° so nose=+X, up=+Y. */
+  const fitted = new THREE.Group();
+  fitted.name = 'normalized_car';
+  scene.rotation.y = Math.PI / 2;
+  fitted.add(scene);
+  fitted.updateMatrixWorld(true);
+  const centers = wheelCenters(fitted);
+  const wb = wheelbaseM(centers);
+  if (wb == null || wb < 1e-6) throw new Error('could not measure GLB wheelbase from WHEEL_* nodes');
+  const scale = TARGET_WHEELBASE_M / wb;
+  fitted.scale.setScalar(scale);
+  fitted.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(fitted);
+  fitted.position.y -= box.min.y;
+  fitted.updateMatrixWorld(true);
+  applyAuthoredMaterials(fitted);
+  const pivots = pivotNamedWheels(fitted);
+  if (pivots.length !== 4) throw new Error('expected 4 WHEEL_* nodes, found ' + pivots.length);
+  const slots = slotWheels(pivots);
+  fitted.userData.norm = {scale, wheelbaseNative: wb, wheelNames: WHEEL_NODE_NAMES.slice()};
+  return {group: fitted, front: slots.front, rear: slots.rear};
+}
+
+function loadCarModel(){
+  if (!webglLive) return Promise.reject(new Error('no WebGL'));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('GLB load timeout')), 30000);
+    const loader = new GLTFLoader();
+    loader.load(
+      MODEL_PATH,
+      gltf => {
+        clearTimeout(timer);
+        try { resolve(normalizeGltfScene(gltf.scene)); }
+        catch (err) { reject(err); }
+      },
+      undefined,
+      err => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
+
+let webglLive = false;
+let trackCar = buildUbcoCar();
+let cardCar = buildUbcoCar();
+let trackScene, trackRenderer, trackCam, cardScene, cardRenderer, cardCam;
 const trackCarCanvas = document.createElement('canvas');
 trackCarCanvas.width = 384; trackCarCanvas.height = 256;
-const trackRenderer = new THREE.WebGLRenderer({canvas:trackCarCanvas, alpha:true, antialias:true, preserveDrawingBuffer:true});
-trackRenderer.setClearColor(0x000000, 0);
-trackRenderer.setSize(384, 256, false);
-const trackCam = new THREE.OrthographicCamera(-CAR_HALF_W, CAR_HALF_W, CAR_HALF_H, -CAR_HALF_H, 0.05, 30);
-trackCam.position.set(CAR_CX, 12, 0);
-trackCam.up.set(0, 0, -1);
-trackCam.lookAt(CAR_CX, 0, 0);
-trackCam.updateProjectionMatrix();
 
-const cardCanvas = document.getElementById('car3d');
-const cardScene = new THREE.Scene();
-cardScene.background = new THREE.Color(0x0a0d12);
-cardScene.add(cardCar.group);
-lights(cardScene);
-const cardRenderer = new THREE.WebGLRenderer({canvas:cardCanvas, antialias:true, alpha:false});
-const cardCam = new THREE.PerspectiveCamera(28, 360/160, 0.05, 40);
-cardCam.position.set(4.6, 2.6, 3.8);
-cardCam.lookAt(CAR_CX, 0.32, 0);
+try {
+  trackScene = new THREE.Scene();
+  trackScene.add(trackCar.group);
+  lights(trackScene);
+  trackRenderer = new THREE.WebGLRenderer({canvas:trackCarCanvas, alpha:true, antialias:true, preserveDrawingBuffer:true});
+  configureRenderer(trackRenderer);
+  trackRenderer.setClearColor(0x000000, 0);
+  trackRenderer.setSize(384, 256, false);
+  trackCam = new THREE.OrthographicCamera(-CAR_HALF_W, CAR_HALF_W, CAR_HALF_H, -CAR_HALF_H, 0.05, 30);
+  trackCam.position.set(CAR_CX, 12, 0);
+  trackCam.up.set(0, 0, -1);
+  trackCam.lookAt(CAR_CX, 0, 0);
+  trackCam.updateProjectionMatrix();
+
+  const cardCanvas = document.getElementById('car3d');
+  cardScene = new THREE.Scene();
+  cardScene.background = new THREE.Color(0x0a0d12);
+  cardScene.add(cardCar.group);
+  lights(cardScene);
+  cardRenderer = new THREE.WebGLRenderer({canvas:cardCanvas, antialias:true, alpha:false});
+  configureRenderer(cardRenderer);
+  cardCam = new THREE.PerspectiveCamera(28, 360/160, 0.05, 40);
+  cardCam.position.set(4.6, 2.6, 3.8);
+  cardCam.lookAt(CAR_CX, 0.32, 0);
+  webglLive = true;
+} catch (err) {
+  webglLive = false;
+}
 
 function resizeCard(){
+  if (!webglLive || !cardRenderer || !cardCam) return;
+  const cardCanvas = document.getElementById('car3d');
   const r = cardCanvas.getBoundingClientRect();
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   cardRenderer.setPixelRatio(dpr);
@@ -372,11 +550,13 @@ function setSteer(car, delta, spin){
 }
 
 function renderTrackCar(delta, spin){
+  if (!webglLive || !trackRenderer) throw new Error('no WebGL');
   setSteer(trackCar, delta, spin);
   trackRenderer.render(trackScene, trackCam);
 }
 
 function renderCardCar(delta, spin, t){
+  if (!webglLive || !cardRenderer) return;
   setSteer(cardCar, delta, spin);
   cardCar.group.rotation.y = 0.18 * Math.sin(t * 0.35);
   resizeCard();
@@ -682,6 +862,30 @@ window.addEventListener('keydown', e => {
   }
 });
 requestAnimationFrame(frame);
+
+if (webglLive){
+  loadCarModel().then(template => {
+    const make = () => {
+      const g = template.group.clone(true);
+      const pivots = [];
+      g.traverse(o => { if (o.name && o.name.endsWith('_pivot')) pivots.push(o); });
+      const slots = slotWheels(pivots);
+      return {group:g, front:slots.front, rear:slots.rear};
+    };
+    trackScene.remove(trackCar.group);
+    cardScene.remove(cardCar.group);
+    trackCar = make();
+    cardCar = make();
+    trackScene.add(trackCar.group);
+    cardScene.add(cardCar.group);
+    fitStampFrustum(trackCar.group);
+    const tris = countTriangles(trackCar.group) + countTriangles(cardCar.group);
+    const n = template.group.userData.norm || {};
+    console.info('GLB car ready', {scale:n.scale, wheelbaseNative:n.wheelbaseNative, wheels:n.wheelNames, trianglesBothViews: tris});
+  }).catch(err => {
+    console.warn('GLB car load failed; keeping procedural car', err && err.message ? err.message : err);
+  });
+}
 </script>
 </body>
 </html>

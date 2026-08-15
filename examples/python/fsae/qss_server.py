@@ -94,6 +94,18 @@ class StudioHandler(SimpleHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
             return
+        if path == "/car.glb":
+            for cand in (
+                _HERE / "models" / "formula_student.glb",
+                _HERE / "car.glb",
+                self.out_dir / "car.glb",
+                Path(r"c:\Users\USER\Downloads\car model 3d\formula_student.glb"),
+            ):
+                if cand.is_file():
+                    self._send_bytes(cand.read_bytes(), "model/gltf-binary")
+                    return
+            self.send_error(404, "car.glb not found")
+            return
         rel = path.lstrip("/")
         candidate = self.out_dir / rel
         if candidate.is_file() and candidate.resolve().is_relative_to(self.out_dir.resolve()):
