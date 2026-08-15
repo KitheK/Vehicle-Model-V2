@@ -14,7 +14,7 @@ sys.path.insert(0, str(_HERE.parent))
 from fsae.opentrack_xlsx import mesh_opentrack, write_fsae_skidpad_xlsx  # noqa: E402
 from fsae.qss_channels import bicycle_steer, reconstruct_lap  # noqa: E402
 from fsae.qss_lap import GGTable, qss_lap  # noqa: E402
-from fsae.qss_viz import plot_hud_frame, plot_openlap_results, write_hud_html  # noqa: E402
+from fsae.qss_viz import plot_hud_frame, plot_openlap_results, write_hud_html, write_results_html  # noqa: E402
 
 
 def _table() -> GGTable:
@@ -64,6 +64,7 @@ class TestQssViz(unittest.TestCase):
             png1 = plot_openlap_results(view, out / "openlap_results.png")
             png2 = plot_hud_frame(view, out / "hud_frame.png", index=10)
             html = write_hud_html(view, out / "hud.html")
+            results = write_results_html(view, out / "results.html")
             self.assertGreater(png1.stat().st_size, 10_000)
             self.assertGreater(png2.stat().st_size, 10_000)
             text = html.read_text(encoding="utf-8")
@@ -92,6 +93,13 @@ class TestQssViz(unittest.TestCase):
             self.assertIn("translate(w/2, h/2)", text)
             self.assertNotIn("Math.PI/2 - yaw", text)
             self.assertIn(str(round(view.lap_time, 3)).split(".")[0], text)
+            self.assertIn("results.html", text)
+            self.assertIn("studio.html", text)
+            matlab = results.read_text(encoding="utf-8")
+            self.assertIn("LonAcc", matlab)
+            self.assertIn("c-kappa", matlab)
+            self.assertIn("GGV usage", matlab)
+            self.assertIn('"kappa":', matlab)
 
     def test_2019_endurance_qss_artifacts(self) -> None:
         xlsx = Path(__file__).resolve().parents[3] / "database/tracks/fsae_2019_endurance/2019_endurance.xlsx"

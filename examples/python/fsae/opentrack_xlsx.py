@@ -308,6 +308,50 @@ def mesh_to_discrete_xml(mesh: OpenTrackMesh) -> str:
 """
 
 
+def write_map_xlsx(
+    path: str | Path,
+    info: OpenTrackInfo | dict,
+    shape: Sequence[Tuple[str, float, float]],
+) -> Path:
+    """Write a Map workbook (Info + Shape). Used by Studio and tests."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(info, OpenTrackInfo):
+        meta = info
+    else:
+        meta = OpenTrackInfo(
+            name=str(info.get("name") or "Track"),
+            country=str(info.get("country") or ""),
+            city=str(info.get("city") or ""),
+            kind=str(info.get("type") or info.get("kind") or "Temporary"),
+            configuration=str(info.get("configuration") or "Closed"),
+            direction=str(info.get("direction") or "Forward"),
+            mirror=str(info.get("mirror") or "Off"),
+        )
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Info"
+    for row in (
+        ("Name", meta.name),
+        ("Country", meta.country),
+        ("City", meta.city),
+        ("Type", meta.kind),
+        ("Configuration", meta.configuration),
+        ("Direction", meta.direction),
+        ("Mirror", meta.mirror),
+    ):
+        ws.append(list(row))
+    sh = wb.create_sheet("Shape")
+    sh.append(list(SHAPE_HEADER))
+    for kind, length, radius in shape:
+        sh.append([str(kind), float(length), float(radius)])
+    from fsae.xlsx_kit import stamp_format
+
+    stamp_format(wb, "map")
+    wb.save(path)
+    return path
+
+
 def write_discrete_xml(xlsx_path: str | Path, xml_path: str | Path, **kwargs) -> Path:
     xml_path = Path(xml_path)
     xml_path.parent.mkdir(parents=True, exist_ok=True)
@@ -317,41 +361,15 @@ def write_discrete_xml(xlsx_path: str | Path, xml_path: str | Path, **kwargs) ->
 
 def write_fsae_skidpad_xlsx(path: str | Path) -> Path:
     """FSAE figure-8 skidpad: two 9.125 m radius circles (OpenTRACK Shape layout)."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    wb = Workbook()
-    info = wb.active
-    info.title = "Info"
-    for row in (
-        ("Name", "FSAE Skidpad"),
-        ("Country", "Greece"),
-        ("City", "Athens"),
-        ("Type", "Temporary"),
-        ("Configuration", "Closed"),
-        ("Direction", "Forward"),
-        ("Mirror", "Off"),
-    ):
-        info.append(list(row))
-    shape = wb.create_sheet("Shape")
-    shape.append(list(SHAPE_HEADER))
-    for row in (
-        ("Left", 1, 9.125),
-        ("Left", 55, 9.125),
-        ("Left", 1, 9.125),
-        ("Right", 1, 9.125),
-        ("Right", 55, 9.125),
-        ("Right", 1, 9.125),
-    ):
-        shape.append(list(row))
-    for title, header in (
-        ("Elevation", ("Point [m]", "Elevation [m]")),
-        ("Banking", ("Point [m]", "Banking [deg]")),
-        ("Grip Factors", ("Start Point [m]", "Grip Factor [-]")),
-        ("Sectors", ("Start Point [m]", "Sector")),
-    ):
-        ws = wb.create_sheet(title)
-        ws.append(list(header))
-        ws.append([0, 0 if title != "Grip Factors" else 1])
-        ws.append([1, 0 if title != "Grip Factors" else 1])
-    wb.save(path)
-    return path
+    return write_map_xlsx(
+        path,
+        OpenTrackInfo(name="FSAE Skidpad", country="Greece", city="Athens"),
+        (
+            ("Left", 1, 9.125),
+            ("Left", 55, 9.125),
+            ("Left", 1, 9.125),
+            ("Right", 1, 9.125),
+            ("Right", 55, 9.125),
+            ("Right", 1, 9.125),
+        ),
+    )

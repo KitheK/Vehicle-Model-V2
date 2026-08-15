@@ -89,42 +89,45 @@ ay, ay_minus, ax_max, ax_min = fastest_lap.gg_diagram(vehicle, 54.0 * KMH, 10)
 fastest_lap.plot_gg(ay, ay_minus, ax_max, ax_min)
 ```
 
-### 3. Vehicle / track workbooks
+### 3. Vehicle / track / driver workbooks
 
-Vehicle numbers are not hardcoded. Drop an OpenVEHICLE-format `.xlsx` (Info +
-Torque Curve; optional **FastestLap** sheet) into `database/vehicles/fsae/` and
-convert:
+Three `.xlsx` kinds share a `Format` sheet (`Kind` = `car` | `map` | `driver`):
 
-```bash
-python3 $VM/examples/python/fsae/xlsx_to_xml.py \
-    $VM/database/vehicles/fsae/ubco-2026-ev.xlsx \
-    -o $VM/database/vehicles/fsae/ubco-2026-ev.xml
-```
+- **Car** — `Info` + `Torque Curve` + `FastestLap` (OpenVEHICLE + 6DOF fields)
+- **Map** — `Info` + `Shape` (`Straight` / `Left` / `Right`)
+- **Driver** — `Info` + `Channels` + `Envelope` (lap, driver inputs, reconstructed 6DOF)
 
-OpenTRACK Shape workbooks (`Info` + `Shape` with Straight/Left/Right):
+Convert any of them with:
 
 ```bash
-python3 $VM/examples/python/fsae/xlsx_to_track.py \
-    $VM/database/tracks/fsae_2019_endurance/2019_endurance.xlsx \
-    -o $VM/database/tracks/fsae_2019_endurance/2019_endurance.xml
+python3 $VM/examples/python/fsae/xlsx_convert.py \
+    $VM/database/vehicles/fsae/ubco-2026-ev.xlsx
+python3 $VM/examples/python/fsae/xlsx_convert.py \
+    $VM/database/tracks/fsae_2019_endurance/2019_endurance.xlsx
 ```
 
-### 4. QSS lap + HUD
+Car → vehicle XML, Map → discrete track XML. The older `xlsx_to_xml.py` /
+`xlsx_to_track.py` entry points still work.
+
+### 4. QSS lap + HUD / MATLAB / Studio
+
+```bash
+python3 $VM/examples/python/fsae/qss_server.py --port 18080 -o $VM/qss_out
+# open http://127.0.0.1:18080/studio.html
+```
+
+Studio loads the UBCO 2026 EV and 2019 Endurance defaults, lets you upload
+Car / Map / Driver `.xlsx` files, edit car numbers and map sections, then
+runs QSS. HUD and MATLAB pages update in the same folder.
+
+CLI (writes PNG frames as well):
 
 ```bash
 python3 $VM/examples/python/fsae/run_qss.py \
     --vehicle-xlsx $VM/database/vehicles/fsae/ubco-2026-ev.xlsx \
     --vehicle-xml  $VM/database/vehicles/fsae/ubco-2026-ev.xml \
     --track-xlsx   $VM/database/tracks/fsae_2019_endurance/2019_endurance.xlsx \
-    -o $VM/qss_out
-```
-
-Outputs: `openlap_results.png`, `hud.html`, `hud_frame.png`, `channels.csv`.
-Serve the HUD over HTTP (Three.js import map):
-
-```bash
-python3 -m http.server 8765 --bind 0.0.0.0 --directory $VM/qss_out
-# open http://127.0.0.1:8765/hud.html
+    --synthetic -o $VM/qss_out
 ```
 
 `--synthetic` skips `gg_diagram` if `libfastestlapc` is missing. `--v-cap`
@@ -143,6 +146,8 @@ Python unit tests (no C library required for viz / xlsx):
 PYTHONPATH=$VM/examples/python python3 -m unittest fsae.test_openvehicle_xlsx
 PYTHONPATH=$VM/examples/python python3 -m unittest fsae.test_opentrack_xlsx
 PYTHONPATH=$VM/examples/python python3 -m unittest fsae.test_qss_viz
+PYTHONPATH=$VM/examples/python python3 -m unittest fsae.test_xlsx_kit
+PYTHONPATH=$VM/examples/python python3 -m unittest fsae.test_qss_studio
 ```
 
 ## Suspension (fsae-6dof)

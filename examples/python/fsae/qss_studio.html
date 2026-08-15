@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Studio — run QSS</title>
+<style>
+  :root { --bg:#eef0f3; --panel:#fff; --fg:#111; --muted:#5c6570; --orange:#d95319;
+          --header:#161b22; --line:#d0d7de; --green:#1a7f37; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; background:var(--bg); color:var(--fg);
+               font-family: ui-sans-serif, system-ui, sans-serif; }
+  header { display:flex; align-items:baseline; justify-content:space-between;
+           padding:10px 16px; background:var(--header); color:#c9d1d9; }
+  header h1 { font-size:18px; margin:0; color:#fff; }
+  header .meta { color:#8b949e; font-size:13px; margin-top:4px; }
+  nav a { color:#f5a623; margin-left:14px; text-decoration:none; font-size:13px; }
+  nav a.active { font-weight:700; }
+  button { background:#21262d; color:#c9d1d9; border:1px solid #30363d; border-radius:6px;
+           padding:8px 14px; cursor:pointer; }
+  button.primary { background:var(--orange); color:#fff; border-color:var(--orange); font-weight:650; }
+  button:disabled { opacity:0.55; cursor:wait; }
+  #page { max-width:1280px; margin:0 auto; padding:16px 16px 48px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; }
+  .toolbar label { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+  .toolbar input[type=number] { width:72px; padding:4px 6px; }
+  .status { font-size:14px; min-height:1.4em; }
+  .status.ok { color:var(--green); }
+  .status.err { color:#b42318; }
+  .cols { display:grid; grid-template-columns: 1.15fr 1fr 0.85fr; gap:12px; }
+  @media (max-width: 980px) { .cols { grid-template-columns: 1fr; } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .card h2 { margin:0 0 8px; font-size:15px; }
+  .hint { font-size:12px; color:var(--muted); margin:0 0 10px; line-height:1.4; }
+  .drop { border:1px dashed #afb8c1; border-radius:8px; padding:10px; background:#f6f8fa; margin-bottom:10px; }
+  .drop input { width:100%; }
+  .fname { font-size:12px; color:var(--muted); margin-top:4px; }
+  .fields { max-height:520px; overflow:auto; border:1px solid var(--line); border-radius:6px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { border-bottom:1px solid #eee; padding:4px 6px; text-align:left; vertical-align:middle; }
+  th { position:sticky; top:0; background:#f6f8fa; }
+  td.cat { color:var(--muted); white-space:nowrap; }
+  input[type=text], input[type=number], select { padding:3px 5px; width:100%;
+    border:1px solid var(--line); border-radius:4px; font: inherit; }
+  .search { width:100%; margin-bottom:8px; padding:6px 8px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Studio</h1>
+    <div class="meta">Upload Car / Map / Driver workbooks or edit the UBCO 2026 EV defaults, then run QSS.</div>
+  </div>
+  <nav>
+    <a href="hud.html">HUD</a>
+    <a href="results.html">MATLAB</a>
+    <a class="active" href="studio.html">Studio</a>
+  </nav>
+</header>
+<div id="page">
+  <div class="toolbar">
+    <button class="primary" id="run">Run simulation</button>
+    <button id="reset">Reset defaults</button>
+    <label>v cap [m/s] <input id="vcap" type="number" step="1" value="40"/></label>
+    <label><input id="synthetic" type="checkbox" checked/> synthetic G-G</label>
+    <span class="status" id="status"></span>
+  </div>
+  <div class="cols">
+    <section class="card">
+      <h2>Car</h2>
+      <p class="hint">Default is UBCO 2026 EV. Upload an OpenVEHICLE .xlsx or edit values below (mass, power, aero, tires, 6DOF FastestLap fields).</p>
+      <div class="drop">
+        <input id="car-file" type="file" accept=".xlsx"/>
+        <div class="fname" id="car-name">Using database default</div>
+      </div>
+      <input class="search" id="car-search" placeholder="Filter car fields…"/>
+      <div class="fields"><table id="car-table">
+        <thead><tr><th>Category</th><th>Description</th><th>Value</th><th>Unit</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>
+    <section class="card">
+      <h2>Endurance map</h2>
+      <p class="hint">Default is the 2019 Endurance Shape workbook. Upload a Map .xlsx or edit sections (Straight / Left / Right).</p>
+      <div class="drop">
+        <input id="map-file" type="file" accept=".xlsx"/>
+        <div class="fname" id="map-name">Using database default</div>
+      </div>
+      <table>
+        <tr><th>Name</th><td><input id="map-title" type="text"/></td></tr>
+        <tr><th>Country</th><td><input id="map-country" type="text"/></td></tr>
+        <tr><th>City</th><td><input id="map-city" type="text"/></td></tr>
+        <tr><th>Type</th><td><input id="map-type" type="text"/></td></tr>
+        <tr><th>Configuration</th><td><input id="map-config" type="text"/></td></tr>
+      </table>
+      <p class="hint" id="map-length"></p>
+      <div class="fields" style="max-height:360px"><table id="shape-table">
+        <thead><tr><th>Type</th><th>Length [m]</th><th>Radius [m]</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>
+    <section class="card">
+      <h2>Driver / 6DOF</h2>
+      <p class="hint">Optional. Drop a Driver .xlsx (Info + Channels + Envelope). If Envelope is present it becomes the G-G table for the lap; otherwise synthetic or live gg_diagram is used. The run always writes a new driver.xlsx.</p>
+      <div class="drop">
+        <input id="driver-file" type="file" accept=".xlsx"/>
+        <div class="fname" id="driver-name">No upload — simulation will reconstruct channels</div>
+      </div>
+      <div id="driver-last" class="hint"></div>
+    </section>
+  </div>
+</div>
+<script>
+let defaults = null;
+const $ = id => document.getElementById(id);
+
+function setStatus(msg, cls) {
+  const el = $('status');
+  el.textContent = msg;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function renderCar(fields) {
+  const q = $('car-search').value.trim().toLowerCase();
+  const tb = $('car-table').querySelector('tbody');
+  tb.innerHTML = '';
+  for (const f of fields) {
+    const blob = (f.category + ' ' + f.description).toLowerCase();
+    if (q && !blob.includes(q)) continue;
+    const tr = document.createElement('tr');
+    tr.dataset.sheet = f.sheet;
+    tr.dataset.description = f.description;
+    const val = f.value == null ? '' : f.value;
+    tr.innerHTML = `<td class="cat">${f.category || ''}</td>
+      <td>${f.description}</td>
+      <td><input data-field="value" value="${String(val).replace(/"/g,'&quot;')}"/></td>
+      <td>${f.unit || ''}</td>`;
+    tb.appendChild(tr);
+  }
+}
+
+function renderMap(map) {
+  const info = map.info || {};
+  $('map-title').value = info.name || '';
+  $('map-country').value = info.country || '';
+  $('map-city').value = info.city || '';
+  $('map-type').value = info.type || '';
+  $('map-config').value = info.configuration || '';
+  $('map-length').textContent = map.length_m ? `Length ${map.length_m.toFixed(1)} m · ${map.shape.length} sections` : '';
+  const tb = $('shape-table').querySelector('tbody');
+  tb.innerHTML = '';
+  for (const s of (map.shape || [])) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>
+      <select>
+        <option ${s.type==='Straight'?'selected':''}>Straight</option>
+        <option ${s.type==='Left'?'selected':''}>Left</option>
+        <option ${s.type==='Right'?'selected':''}>Right</option>
+      </select></td>
+      <td><input type="number" step="0.01" value="${s.length}"/></td>
+      <td><input type="number" step="0.01" value="${s.radius}"/></td>`;
+    tb.appendChild(tr);
+  }
+}
+
+function collectOverrides() {
+  const out = [];
+  for (const tr of $('car-table').querySelectorAll('tbody tr')) {
+    out.push({
+      sheet: tr.dataset.sheet,
+      description: tr.dataset.description,
+      value: tr.querySelector('input').value,
+    });
+  }
+  return out;
+}
+
+function collectShape() {
+  const rows = [];
+  for (const tr of $('shape-table').querySelectorAll('tbody tr')) {
+    const tds = tr.querySelectorAll('select, input');
+    rows.push({ type: tds[0].value, length: tds[1].value, radius: tds[2].value });
+  }
+  return rows;
+}
+
+function collectMapInfo() {
+  return {
+    name: $('map-title').value,
+    country: $('map-country').value,
+    city: $('map-city').value,
+    type: $('map-type').value,
+    configuration: $('map-config').value,
+    direction: 'Forward',
+    mirror: 'Off',
+  };
+}
+
+async function loadDefaults() {
+  const r = await fetch('/api/defaults');
+  defaults = await r.json();
+  renderCar(defaults.car.fields);
+  renderMap(defaults.map);
+  $('vcap').value = defaults.settings.v_cap;
+  $('synthetic').checked = defaults.settings.synthetic;
+  $('car-name').textContent = 'Using ' + (defaults.car.name || 'database default');
+  $('map-name').textContent = 'Using ' + ((defaults.map.info && defaults.map.info.name) || 'database default');
+  if (defaults.driver && defaults.driver.present) {
+    $('driver-last').textContent = `Last run: ${defaults.driver.Vehicle || ''} on ${defaults.driver.Track || ''} · ${defaults.driver['Lap time [s]'] || ''} s`;
+  } else {
+    $('driver-last').textContent = 'No previous driver.xlsx in this output folder.';
+  }
+}
+
+function fileLabel(input, label, fallback) {
+  input.addEventListener('change', () => {
+    label.textContent = input.files[0] ? 'Upload: ' + input.files[0].name : fallback;
+  });
+}
+
+fileLabel($('car-file'), $('car-name'), 'Using database default');
+fileLabel($('map-file'), $('map-name'), 'Using database default');
+fileLabel($('driver-file'), $('driver-name'), 'No upload — simulation will reconstruct channels');
+$('car-search').addEventListener('input', () => {
+  const q = $('car-search').value.trim().toLowerCase();
+  for (const tr of $('car-table').querySelectorAll('tbody tr')) {
+    const blob = (tr.dataset.sheet + ' ' + tr.cells[0].textContent + ' ' + tr.dataset.description).toLowerCase();
+    tr.style.display = (!q || blob.includes(q)) ? '' : 'none';
+  }
+});
+$('reset').onclick = () => { $('car-file').value=''; $('map-file').value=''; $('driver-file').value=''; loadDefaults(); setStatus('Defaults restored'); };
+
+$('run').onclick = async () => {
+  const btn = $('run');
+  btn.disabled = true;
+  setStatus('Running QSS…');
+  const fd = new FormData();
+  if ($('car-file').files[0]) fd.append('car', $('car-file').files[0]);
+  if ($('map-file').files[0]) fd.append('map', $('map-file').files[0]);
+  if ($('driver-file').files[0]) fd.append('driver', $('driver-file').files[0]);
+  fd.append('overrides', JSON.stringify(collectOverrides()));
+  fd.append('map_info', JSON.stringify(collectMapInfo()));
+  fd.append('shape', JSON.stringify(collectShape()));
+  fd.append('v_cap', $('vcap').value);
+  fd.append('synthetic', $('synthetic').checked ? 'true' : 'false');
+  try {
+    const r = await fetch('/api/run', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.statusText);
+    const sp = data.speed_kmh || {};
+    setStatus(
+      `${data.vehicle} · ${data.track} · ${data.lap_time.toFixed(3)} s   ` +
+      `${sp.min.toFixed(1)} / ${sp.mean.toFixed(1)} / ${sp.max.toFixed(1)} km/h`,
+      'ok'
+    );
+    $('driver-last').textContent = `Wrote driver.xlsx (${data.n} samples). Open HUD or MATLAB.`;
+  } catch (err) {
+    setStatus(String(err.message || err), 'err');
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+loadDefaults().catch(err => setStatus(String(err), 'err'));
+</script>
+</body>
+</html>

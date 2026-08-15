@@ -44,8 +44,10 @@
   #telem-filters i.sw { width:12px; height:8px; border-radius:2px; display:inline-block; }
   #telem canvas { flex:1; min-height:0; width:100%; display:block; }
   button { background:#21262d; color:var(--fg); border:1px solid var(--line); border-radius:6px;
-           padding:4px 10px; cursor:pointer; }
+           padding:4px 10px; cursor:pointer; margin-right:10px; }
   button:hover { border-color:var(--orange); }
+  header nav a { color:var(--orange); margin-left:14px; text-decoration:none; font-size:13px; }
+  header nav a.active { font-weight:700; }
   .note { font-size:10px; color:var(--muted); margin-top:6px; line-height:1.35; }
 </style>
 <script type="importmap">
@@ -62,6 +64,11 @@
     <div>
       <button id="play">Pause</button>
       <span class="lap" id="lap">0.000 s</span>
+      <nav>
+        <a class="active" href="hud.html">HUD</a>
+        <a href="results.html">MATLAB</a>
+        <a href="studio.html">Studio</a>
+      </nav>
     </div>
   </header>
   <div id="stage"><canvas id="track"></canvas></div>

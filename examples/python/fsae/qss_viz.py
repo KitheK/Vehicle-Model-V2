@@ -26,6 +26,7 @@ NAVY = "#0b1f4a"
 
 _HERE = Path(__file__).resolve().parent
 _HUD_TEMPLATE = _HERE / "qss_hud.html"
+_RESULTS_TEMPLATE = _HERE / "qss_results.html"
 
 
 def _setup_mpl():
@@ -394,10 +395,9 @@ def _round_list(values, ndigits: int = 5):
     return [round(float(v), ndigits) for v in values]
 
 
-def write_hud_html(view: LapView, path: str | Path, cam_height: float = 80.0, half_width: float = 3.5) -> Path:
-    """Self-contained dark HUD with world-aligned asphalt follow-cam and UBCO 3D car."""
+def _payload(view: LapView, cam_height: float = 80.0, half_width: float = 3.5) -> dict:
     xl, yl, xr, yr = _bounds(view, half_width)
-    payload = {
+    return {
         "vehicle": view.vehicle_name,
         "track": view.track_name,
         "lapTime": round(view.lap_time, 4),
@@ -408,6 +408,8 @@ def write_hud_html(view: LapView, path: str | Path, cam_height: float = 80.0, ha
         "x": _round_list(view.x, 4),
         "y": _round_list(view.y, 4),
         "yaw": _round_list(view.yaw, 5),
+        "kappa": _round_list(view.kappa, 6),
+        "vmax": _round_list(view.v_max, 4),
         "xl": _round_list(xl, 4),
         "yl": _round_list(yl, 4),
         "xr": _round_list(xr, 4),
@@ -444,12 +446,26 @@ def write_hud_html(view: LapView, path: str | Path, cam_height: float = 80.0, ha
         "envAxMin": _round_list(view.env_ax_min, 4),
         "envSpeed": round(view.env_speed, 3),
     }
-    template = _HUD_TEMPLATE.read_text(encoding="utf-8")
-    html = template.replace("__PAYLOAD__", json.dumps(payload, separators=(",", ":")))
+
+
+def _write_html(template: Path, payload: dict, path: str | Path) -> Path:
+    html = template.read_text(encoding="utf-8").replace(
+        "__PAYLOAD__", json.dumps(payload, separators=(",", ":"))
+    )
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(html, encoding="utf-8")
     return path
+
+
+def write_hud_html(view: LapView, path: str | Path, cam_height: float = 80.0, half_width: float = 3.5) -> Path:
+    """Self-contained dark HUD with world-aligned asphalt follow-cam and UBCO 3D car."""
+    return _write_html(_HUD_TEMPLATE, _payload(view, cam_height, half_width), path)
+
+
+def write_results_html(view: LapView, path: str | Path, cam_height: float = 80.0, half_width: float = 3.5) -> Path:
+    """OpenLAP MATLAB-style page: stacked channels, GGV scatter, track map."""
+    return _write_html(_RESULTS_TEMPLATE, _payload(view, cam_height, half_width), path)
 
 
 def write_summary(view: LapView, path: str | Path) -> Path:

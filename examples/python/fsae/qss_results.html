@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>MATLAB calculations</title>
+<style>
+  :root { --bg:#f4f4f4; --panel:#fff; --fg:#111; --muted:#555; --orange:#d95319;
+          --green:#00a65a; --blue:#1f77b4; --line:#ddd; --header:#161b22; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; background:var(--bg); color:var(--fg);
+               font-family: ui-sans-serif, system-ui, sans-serif; }
+  header { display:flex; align-items:baseline; justify-content:space-between;
+           padding:10px 16px; background:var(--header); color:#c9d1d9; }
+  header h1 { font-size:18px; margin:0; color:#fff; }
+  header .meta { color:#8b949e; font-size:13px; margin-top:4px; }
+  header .lap { color:var(--orange); font-variant-numeric: tabular-nums; font-size:20px; }
+  nav a { color:#f5a623; margin-left:14px; text-decoration:none; font-size:13px; }
+  nav a.active { font-weight:700; }
+  button { background:#21262d; color:#c9d1d9; border:1px solid #30363d; border-radius:6px;
+           padding:4px 10px; cursor:pointer; margin-right:10px; }
+  #page { max-width:1100px; margin:0 auto; padding:12px 16px 32px; }
+  .block { background:var(--panel); border:1px solid var(--line); border-radius:6px;
+           margin:10px 0; padding:8px 10px 4px; }
+  .block h2 { margin:0 0 4px; font-size:13px; font-weight:700; }
+  .block canvas { width:100%; display:block; height:88px; }
+  .tall canvas { height:220px; }
+  #bottom { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+  #ggv, #tmap { height:280px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1 id="title">MATLAB calculations</h1>
+    <div class="meta" id="clock">t = 0.00 s</div>
+  </div>
+  <div>
+    <button id="play">Pause</button>
+    <span class="lap" id="lap">0.000 s</span>
+    <nav>
+      <a href="hud.html">HUD</a>
+      <a class="active" href="results.html">MATLAB</a>
+      <a href="studio.html">Studio</a>
+    </nav>
+  </div>
+</header>
+<div id="page">
+  <div class="block"><h2>Speed</h2><canvas id="c-speed"></canvas></div>
+  <div class="block"><h2>Curvature</h2><canvas id="c-kappa"></canvas></div>
+  <div class="block"><h2>Acceleration</h2>
+    <canvas id="c-ax"></canvas><canvas id="c-ay"></canvas><canvas id="c-gsum"></canvas>
+  </div>
+  <div class="block"><h2>Driver inputs</h2>
+    <canvas id="c-tps"></canvas><canvas id="c-bps"></canvas>
+  </div>
+  <div class="block"><h2>Attitude</h2>
+    <canvas id="c-steer"></canvas><canvas id="c-delta"></canvas><canvas id="c-beta"></canvas>
+  </div>
+  <div id="bottom">
+    <div class="block tall"><h2>GGV usage</h2><canvas id="ggv"></canvas></div>
+    <div class="block tall"><h2>Track map</h2><canvas id="tmap"></canvas></div>
+  </div>
+</div>
+<script>
+const D = __PAYLOAD__;
+if (!D.kappa) D.kappa = D.s.map(() => 0);
+if (!D.vmax) D.vmax = D.v.slice();
+const N = D.time.length;
+let playing = true, t0 = performance.now(), tSim = 0;
+
+function lerp(a,b,u){ return a + (b-a)*u; }
+function atTime(t){
+  if (t <= D.time[0]) return 0;
+  if (t >= D.time[N-1]) return N-1;
+  let lo=0, hi=N-1;
+  while (hi-lo>1){ const m=(lo+hi)>>1; if (D.time[m] <= t) lo=m; else hi=m; }
+  return lo + (t - D.time[lo]) / Math.max(1e-9, D.time[hi]-D.time[lo]);
+}
+function samp(arr, f){
+  const i = Math.max(0, Math.min(N-2, Math.floor(f)));
+  return lerp(arr[i], arr[i+1], f-i);
+}
+function fit(c, h){
+  const r = c.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const height = h || r.height || 88;
+  c.width = Math.max(1, r.width * dpr);
+  c.height = Math.max(1, height * dpr);
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {ctx, w:r.width, h:height};
+}
+function extent(arr){
+  let lo=1e9, hi=-1e9;
+  for (let i=0;i<arr.length;i++){ lo=Math.min(lo,arr[i]); hi=Math.max(hi,arr[i]); }
+  if (hi-lo<1e-9){ lo-=1; hi+=1; }
+  const p = 0.08*(hi-lo);
+  return [lo-p, hi+p];
+}
+const sMax = D.s[N-1] || 1;
+const vKmh = D.v.map(v => v*3.6);
+const gsum = D.ax.map((a,i)=>Math.hypot(a, D.ay[i]));
+let vPeak = D.v[0] || 1;
+for (let i=1;i<N;i++) vPeak = Math.max(vPeak, D.v[i]);
+
+function plot(id, arr, color, ylabel, extra){
+  const c = document.getElementById(id);
+  const {ctx, w, h} = fit(c);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,w,h);
+  const [lo, hi] = extent(arr);
+  const X = s => 48 + (s/sMax)*(w-56);
+  const Y = v => h-18 - (v-lo)/(hi-lo)*(h-28);
+  ctx.strokeStyle = '#eee'; ctx.lineWidth = 1;
+  for (let k=0;k<=4;k++){
+    const y = 10 + k/4*(h-28);
+    ctx.beginPath(); ctx.moveTo(48,y); ctx.lineTo(w-8,y); ctx.stroke();
+  }
+  if (extra) extra(ctx, X, Y, w, h);
+  ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.beginPath();
+  for (let i=0;i<N;i++){
+    const x=X(D.s[i]), y=Y(arr[i]);
+    if(i) ctx.lineTo(x,y); else ctx.moveTo(x,y);
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#555'; ctx.font = '11px sans-serif';
+  ctx.textAlign = 'left'; ctx.fillText(ylabel, 4, 12);
+  ctx.textAlign = 'right'; ctx.fillText('Distance [m]', w-8, h-4);
+  return {ctx, X, Y, w, h};
+}
+function cursor(ctx, X, f, h){
+  const s = samp(D.s, f);
+  ctx.strokeStyle = '#111'; ctx.lineWidth = 1;
+  ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(X(s), 8); ctx.lineTo(X(s), h-16); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawGGV(f){
+  const {ctx, w, h} = fit(document.getElementById('ggv'), 280);
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+  const lim=2.2, cx=w/2, cy=h*0.52, sc=Math.min(w,h)*0.38/lim;
+  const X=ay=>cx+ay*sc, Y=ax=>cy-ax*sc;
+  ctx.strokeStyle='#ddd';
+  for (let g=0.5; g<=2.001; g+=0.5){
+    ctx.beginPath(); ctx.arc(cx,cy,g*sc,0,Math.PI*2); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.moveTo(cx-lim*sc,cy); ctx.lineTo(cx+lim*sc,cy);
+  ctx.moveTo(cx,cy-lim*sc); ctx.lineTo(cx,cy+lim*sc); ctx.stroke();
+  if (D.envAy && D.envAy.length){
+    ctx.strokeStyle='#c62828'; ctx.lineWidth=1.5;
+    const draw=(xs,ys)=>{ ctx.beginPath(); for(let i=0;i<xs.length;i++){ const x=X(xs[i]), y=Y(ys[i]); if(i) ctx.lineTo(x,y); else ctx.moveTo(x,y);} ctx.stroke(); };
+    draw(D.envAy, D.envAxMax); draw(D.envAy, D.envAxMin);
+    draw(D.envAy.map(a=>-a), D.envAxMax); draw(D.envAy.map(a=>-a), D.envAxMin);
+  }
+  for (let i=0;i<N;i+=Math.max(1, Math.floor(N/400))){
+    const u = D.v[i] / vPeak;
+    ctx.fillStyle = `hsl(${250-250*u},70%,45%)`;
+    ctx.beginPath(); ctx.arc(X(D.ay[i]), Y(D.ax[i]), 2.2, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.fillStyle='#d95319'; ctx.beginPath();
+  ctx.arc(X(samp(D.ay,f)), Y(samp(D.ax,f)), 5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle='#555'; ctx.font='11px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('LatAcc [g] →', w/2, h-6);
+  ctx.save(); ctx.translate(12, h/2); ctx.rotate(-Math.PI/2); ctx.fillText('LonAcc [g]', 0, 0); ctx.restore();
+}
+
+function drawMap(f){
+  const {ctx, w, h} = fit(document.getElementById('tmap'), 280);
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+  let minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9;
+  for (let i=0;i<N;i++){ minx=Math.min(minx,D.x[i]); maxx=Math.max(maxx,D.x[i]);
+    miny=Math.min(miny,D.y[i]); maxy=Math.max(maxy,D.y[i]); }
+  const pad=18, sx=(w-2*pad)/Math.max(1e-6,maxx-minx), sy=(h-2*pad)/Math.max(1e-6,maxy-miny);
+  const sc=Math.min(sx,sy);
+  const X=x=>pad+(x-minx)*sc, Y=y=>h-pad-(y-miny)*sc;
+  ctx.lineWidth=3; ctx.lineJoin='round';
+  for (let i=1;i<N;i++){
+    const u = D.v[i] / vPeak;
+    ctx.strokeStyle = `hsl(${250-250*u},70%,45%)`;
+    ctx.beginPath(); ctx.moveTo(X(D.x[i-1]), Y(D.y[i-1])); ctx.lineTo(X(D.x[i]), Y(D.y[i])); ctx.stroke();
+  }
+  const px=X(samp(D.x,f)), py=Y(samp(D.y,f));
+  ctx.fillStyle='#111';
+  ctx.beginPath(); ctx.moveTo(px+7,py); ctx.lineTo(px-5,py+4); ctx.lineTo(px-5,py-4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#555'; ctx.font='11px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('X [m]', w/2, h-4);
+}
+
+function frame(now){
+  if (playing){
+    tSim = (now - t0)/1000;
+    if (tSim > D.lapTime){ tSim = tSim % D.lapTime; t0 = now - tSim*1000; }
+  }
+  const f = atTime(tSim);
+  document.getElementById('clock').textContent =
+    `t = ${tSim.toFixed(2)} s    ${(samp(D.v,f)*3.6).toFixed(1)} km/h    s = ${samp(D.s,f).toFixed(0)} m`;
+  const p = plot('c-speed', vKmh, '#d95319', 'Speed [km/h]', (ctx,X,Y)=>{
+    if (!D.vmax) return;
+    ctx.strokeStyle='#888'; ctx.setLineDash([4,3]); ctx.beginPath();
+    for (let i=0;i<N;i++){ const x=X(D.s[i]), y=Y(D.vmax[i]*3.6); if(i) ctx.lineTo(x,y); else ctx.moveTo(x,y); }
+    ctx.stroke(); ctx.setLineDash([]);
+  });
+  cursor(p.ctx, p.X, f, p.h);
+  const plots = [
+    ['c-kappa', D.kappa, '#1f77b4', 'κ [1/m]'],
+    ['c-ax', D.ax, '#00a65a', 'LonAcc [g]'],
+    ['c-ay', D.ay, '#1f77b4', 'LatAcc [g]'],
+    ['c-gsum', gsum, '#111', 'GSum [g]'],
+    ['c-tps', D.tps.map(x=>x*100), '#00a65a', 'tps [%]'],
+    ['c-bps', D.bps.map(x=>x*100), '#e53935', 'bps [%]'],
+    ['c-steer', D.steer, '#d95319', 'Steer wheel [deg]'],
+    ['c-delta', D.delta, '#1f77b4', 'δ [deg]'],
+    ['c-beta', D.beta, '#6a1b9a', 'β [deg]'],
+  ];
+  for (const [id, arr, col, lab] of plots){
+    const q = plot(id, arr, col, lab);
+    cursor(q.ctx, q.X, f, q.h);
+  }
+  drawGGV(f); drawMap(f);
+  requestAnimationFrame(frame);
+}
+
+document.getElementById('title').textContent = D.vehicle + '  ·  ' + D.track;
+document.getElementById('lap').textContent = D.lapTime.toFixed(3) + ' s';
+document.getElementById('play').onclick = () => {
+  playing = !playing;
+  document.getElementById('play').textContent = playing ? 'Pause' : 'Play';
+  if (playing) t0 = performance.now() - tSim*1000;
+};
+window.addEventListener('keydown', e => {
+  if (e.code==='Space'){ e.preventDefault(); document.getElementById('play').click(); }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

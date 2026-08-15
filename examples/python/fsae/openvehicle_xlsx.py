@@ -589,6 +589,9 @@ def write_openvehicle_workbook(
     extra = wb.create_sheet("FastestLap")
     _write_info_sheet(extra, fastestlap_rows)
 
+    from fsae.xlsx_kit import stamp_format
+
+    stamp_format(wb, "car")
     wb.save(path)
     return path
 
