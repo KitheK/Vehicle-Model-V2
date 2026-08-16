@@ -52,10 +52,11 @@ def _table() -> GGTable:
 
 
 class TestQssViz(unittest.TestCase):
-    def test_vehicle_dynamics_overlay_is_attached_to_track_stage(self) -> None:
+    def test_vehicle_dynamics_is_a_separate_side_panel_card(self) -> None:
         parser = _HudStructureParser()
         parser.feed((Path(__file__).with_name("qss_hud.html")).read_text(encoding="utf-8"))
-        self.assertEqual(parser.parents.get("dynamics-overlay"), "stage")
+        self.assertEqual(parser.parents.get("dynamics-card"), "side")
+        self.assertEqual(parser.parents.get("dynamics-overlay"), "dynamics-card")
         self.assertEqual(parser.parents.get("car3d"), "dynamics-overlay")
         self.assertEqual(sorted(parser.wheels), ["fl", "fr", "rl", "rr"])
 
