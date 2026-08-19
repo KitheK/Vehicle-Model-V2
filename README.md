@@ -45,20 +45,16 @@ belongs under `fsae-6dof` and `examples/python/fsae/`.
 
 ## Cloudflare
 
-The live site is the same Python Studio server as local, running in a
-Cloudflare Container. Studio can load defaults, process Car/Map/Driver
-`.xlsx` uploads, run QSS, and rewrite HUD / MATLAB. `car.glb` is still
-served from Worker static assets.
-
-Deploy from a machine (or Workers Build) with Docker:
+Git deploy is a Worker plus static assets. Studio runs QSS in the browser
+(Pyodide) so Cloudflare does not need to push a container image.
 
 ```bash
-npm install
+PYTHONPATH=$VM/examples/python python3 $VM/examples/python/fsae/build_pages.py
 npx wrangler deploy
 ```
 
-Leave the Cloudflare deploy command as `npx wrangler deploy`. The first
-container rollout takes a few minutes. `/health` should return `ok`.
+The first Studio visit downloads the Python runtime, then Process / Calculate
+work the same as locally. HUD and MATLAB are stored after each run.
 
 Local Studio is unchanged:
 

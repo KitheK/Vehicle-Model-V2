@@ -46,6 +46,7 @@
     border:1px solid var(--line); border-radius:4px; font: inherit; }
   .search { width:100%; margin-bottom:8px; padding:6px 8px; }
 </style>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.27.6/full/pyodide.js"></script>
 </head>
 <body>
 <header>
@@ -205,9 +206,42 @@ function collectMapInfo() {
   };
 }
 
+function useBrowserQss() {
+  return !/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+}
+
+let pyodidePromise = null;
+async function ensurePy() {
+  if (pyodidePromise) return pyodidePromise;
+  pyodidePromise = (async () => {
+    setStatus('Loading Python runtime (first visit)…');
+    const pyodide = await loadPyodide({
+      indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.6/full/',
+    });
+    await pyodide.loadPackage(['numpy', 'micropip']);
+    const micropip = pyodide.pyimport('micropip');
+    await micropip.install('openpyxl');
+    const zip = await (await fetch('qss-runtime.zip')).arrayBuffer();
+    pyodide.unpackArchive(zip, 'zip', { extractDir: '/' });
+    pyodide.runPython("import sys; sys.path.insert(0, '/app/examples/python')");
+    return pyodide;
+  })();
+  return pyodidePromise;
+}
+
 async function previewFile(kind, inputId) {
   const input = $(inputId);
   if (!input.files[0]) throw new Error('Choose a .xlsx file first');
+  if (useBrowserQss()) {
+    const py = await ensurePy();
+    py.FS.writeFile('/tmp/upload.xlsx', new Uint8Array(await input.files[0].arrayBuffer()));
+    const raw = py.runPython(`
+from fsae.qss_browser import preview_path
+import json
+json.dumps(preview_path('/tmp/upload.xlsx', ${JSON.stringify(kind)}))
+`);
+    return JSON.parse(raw);
+  }
   const fd = new FormData();
   fd.append('file', input.files[0]);
   fd.append('expect', kind);
@@ -248,7 +282,8 @@ function stampLinks() {
 }
 
 async function loadDefaults() {
-  const r = await fetch('/api/defaults');
+  let r = await fetch('/api/defaults');
+  if (!r.ok) r = await fetch('defaults.json');
   defaults = await r.json();
   renderCar(defaults.car.fields);
   renderMap(defaults.map);
@@ -306,9 +341,51 @@ $('run').onclick = async () => {
     fd.append('shape', JSON.stringify(collectShape()));
     fd.append('v_cap', $('vcap').value);
     fd.append('synthetic', $('synthetic').checked ? 'true' : 'false');
-    const r = await fetch('/api/run', { method: 'POST', body: fd });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || r.statusText);
+    let data;
+    if (useBrowserQss()) {
+      const py = await ensurePy();
+      setStatus('Calculating QSS lap…');
+      const write = async (name, file) => {
+        if (!file) return;
+        py.FS.writeFile(name, new Uint8Array(await file.arrayBuffer()));
+      };
+      await write('/tmp/car.xlsx', $('car-file').files[0]);
+      await write('/tmp/map.xlsx', $('map-file').files[0]);
+      await write('/tmp/driver.xlsx', $('driver-file').files[0]);
+      py.globals.set('js_overrides', fd.get('overrides'));
+      py.globals.set('js_map_info', fd.get('map_info'));
+      py.globals.set('js_shape', fd.get('shape'));
+      py.globals.set('js_vcap', $('vcap').value);
+      py.globals.set('js_synth', $('synthetic').checked ? 'true' : 'false');
+      py.globals.set('js_has_car', $('car-file').files[0] ? '1' : '');
+      py.globals.set('js_has_map', $('map-file').files[0] ? '1' : '');
+      py.globals.set('js_has_driver', $('driver-file').files[0] ? '1' : '');
+      const raw = await py.runPythonAsync(`
+from fsae.qss_browser import run_studio
+import json
+summary = run_studio(
+    car_path='/tmp/car.xlsx' if js_has_car else None,
+    map_path='/tmp/map.xlsx' if js_has_map else None,
+    driver_path='/tmp/driver.xlsx' if js_has_driver else None,
+    overrides=js_overrides,
+    map_info=js_map_info,
+    shape=js_shape,
+    v_cap=float(js_vcap),
+    synthetic=str(js_synth).lower() not in ('0','false','no',''),
+)
+hud = summary.pop('hud_html')
+results = summary.pop('results_html')
+json.dumps({'summary': summary, 'hud': hud, 'results': results})
+`);
+      const packed = JSON.parse(raw);
+      data = packed.summary;
+      await fetch('/api/artifact/hud.html', { method: 'PUT', body: packed.hud, headers: { 'content-type': 'text/html' } });
+      await fetch('/api/artifact/results.html', { method: 'PUT', body: packed.results, headers: { 'content-type': 'text/html' } });
+    } else {
+      const r = await fetch('/api/run', { method: 'POST', body: fd });
+      data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+    }
     const sp = data.speed_kmh || {};
     setStatus(
       `${data.vehicle} · ${data.track} · ${data.lap_time.toFixed(3)} s   ` +

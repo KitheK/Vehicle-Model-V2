@@ -64,6 +64,28 @@ class TestQssStudio(unittest.TestCase):
             self.assertIsNotNone(table)
             self.assertGreaterEqual(len(table.ay[0]), 2)
 
+    def test_browser_run_includes_html(self) -> None:
+        from fsae.qss_browser import run_studio
+        from fsae.opentrack_xlsx import write_fsae_skidpad_xlsx
+        from fsae.openvehicle_xlsx import write_ubco_2026_xlsx
+
+        with tempfile.TemporaryDirectory() as tmp:
+            track = Path(tmp) / "skidpad.xlsx"
+            car = Path(tmp) / "car.xlsx"
+            write_fsae_skidpad_xlsx(track)
+            write_ubco_2026_xlsx(car)
+            summary = run_studio(
+                car_path=car,
+                map_path=track,
+                synthetic=True,
+                v_cap=30.0,
+                output=Path(tmp) / "out",
+            )
+            self.assertIn("hud_html", summary)
+            self.assertIn("canvas", summary["hud_html"])
+            self.assertIn("LonAcc", summary["results_html"])
+            self.assertGreater(summary["lap_time"], 5.0)
+
     def test_driver_envelope_changes_lap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             track = Path(tmp) / "skidpad.xlsx"
