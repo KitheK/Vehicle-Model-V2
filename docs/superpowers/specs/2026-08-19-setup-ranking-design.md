@@ -10,7 +10,7 @@ Let UBCO Motorsports compare car **builds** (mass, power, aero, suspension numbe
 - Sort is **user-picked column** (lap time, speeds, peak ay, mass, max power, saved time). Default sort: lap time ascending (fastest first).
 - One board with a **map filter** that defaults to the map of the latest run. Turning the filter off shows every map. Ghosting a different map is allowed; the HUD shows a warning.
 - Save is **explicit** (name + Save to ranking), not automatic on every Calculate.
-- Persist locally as `qss_out/ranking.json`. On Cloudflare, persist in the existing `QssStore` Durable Object under keys `ranking.json` and `ghost/<id>.json`.
+- Persist locally as `qss_out/ranking.json`. On Cloudflare, persist the same JSON in `QssStore` under `ranking.json`. Ghost channels are inlined in each record (downsampled). No separate ghost files in v1.
 - Do not change the C++ `fsae-6dof` ODE. Ranking consumes QSS summaries and car field snapshots only.
 - Out of v1: four-car overlay, energy/SOC rank, deleting Cloudflare Containers, live two-editor Studio.
 
@@ -79,8 +79,7 @@ Ranking page
   → sort/filter in the browser
 
 HUD
-  → GET ranking.json for the ghost list
-  → GET ghost/<id>.json if not inlined
+  → GET ranking.json for names and ghost channels
   → draw live D plus ghost G
 ```
 
