@@ -48,14 +48,20 @@ Each saved entry is JSON:
 - Nav link: Ranking.
 - Status line confirms save or duplicate-name overwrite (overwrite only if the user confirms).
 
-**Ranking** (`qss_ranking.html`, served as `ranking.html`)
+**Ranking** (`qss_ranking.html`, served as `ranking.html`) — fourth nav tab on HUD, MATLAB, Studio, and Ranking (`HUD | MATLAB | Studio | Ranking`).
 
-- Table: name, map, lap time, min/mean/max km/h, peak ay, mass, max power, saved at.
+- Board table: name, map, lap time, min/mean/max km/h, peak ay, mass, max power, saved at. Row name is a link into that setup’s **detail** page (`ranking.html#<id>`).
 - Click column headers to sort; indicator on the active column.
 - Map filter: dropdown, default = latest run’s map; option “All maps”.
-- Actions per row: **Ghost on HUD**, **Load setup** (writes car fields back into Studio), **Download .xlsx** (Car workbook), **Delete**.
+- Actions per row: **Open**, **Ghost on HUD**, **Load setup** (writes car fields back into Studio), **Download .xlsx** (Car workbook), **Delete**.
 - **Download all .xlsx** exports every visible (filtered) row as separate files, or a zip if more than one. Filename: `{name-slug}_{map-slug}.xlsx`.
 - Empty state: “No saved setups. Calculate in Studio, then Save to ranking.”
+
+**Ranking detail** (click a ranked car)
+
+- Header: setup name, map, lap time, Back to board, Ghost, Load, Download .xlsx.
+- Left: read-only **car information** (same Category / Description / Value / Unit table as Studio).
+- Right: **MATLAB visualization** of that save’s lap (Speed, curvature, ax/ay/gsum, driver inputs, attitude, GGV, track map) using downsampled channels stored on the ranking record (`matlab`). Play/pause like the MATLAB tab. If channels are missing, show “No lap traces for this save.”
 
 **HUD** (`qss_hud.html`)
 

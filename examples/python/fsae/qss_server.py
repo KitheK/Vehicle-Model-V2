@@ -26,6 +26,17 @@ if str(_HERE.parent) not in sys.path:
 
 from fsae.opentrack_xlsx import write_map_xlsx  # noqa: E402
 from fsae.qss_job import DEFAULT_CAR, DEFAULT_MAP, defaults_payload, run_qss_job  # noqa: E402
+from fsae.qss_ranking import (  # noqa: E402
+    build_record,
+    delete_entry,
+    export_car_xlsx,
+    export_zip,
+    filter_by_map,
+    find_by_id,
+    load_entries,
+    save_entry,
+    write_entries,
+)
 from fsae.xlsx_kit import detect_kind, patch_car_xlsx, preview_workbook  # noqa: E402
 
 MAX_BODY = 25 * 1024 * 1024
@@ -100,6 +111,22 @@ class StudioHandler(SimpleHTTPRequestHandler):
             html = (_HERE / "qss_studio.html").read_bytes()
             self._send_bytes(html, "text/html; charset=utf-8")
             return
+        if path == "/ranking.html":
+            html = (_HERE / "qss_ranking.html").read_bytes()
+            self._send_bytes(html, "text/html; charset=utf-8")
+            return
+        if path == "/api/ranking":
+            try:
+                self._send_json(load_entries(self.out_dir / "ranking.json"))
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, 400)
+            return
+        if path == "/api/ranking/export.zip":
+            self._export_zip()
+            return
+        if path.endswith("/car.xlsx") and path.startswith("/api/ranking/"):
+            self._export_one(path.split("/")[3])
+            return
         if path == "/api/defaults":
             self._send_json(defaults_payload(self.out_dir))
             return
@@ -129,13 +156,118 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 return
         self.send_error(404, "Not found")
 
-    def do_POST(self) -> None:  # noqa: N802
-        parsed = urlparse(self.path)
+    def _ranking_file(self) -> Path:
+        return self.out_dir / "ranking.json"
+
+    def _read_body(self) -> bytes:
         length = int(self.headers.get("Content-Length") or 0)
         if length > MAX_BODY:
-            self._send_json({"error": "upload too large"}, 413)
+            raise ValueError("upload too large")
+        return self.rfile.read(length)
+
+    def _export_one(self, entry_id: str) -> None:
+        try:
+            entries = load_entries(self._ranking_file())
+            entry = find_by_id(entries, entry_id)
+            if entry is None:
+                self.send_error(404, "setup not found")
+                return
+            dest = self.out_dir / f"rank-{entry_id}.xlsx"
+            export_car_xlsx(entry, dest)
+            data = dest.read_bytes()
+            self.send_response(200)
+            self.send_header(
+                "Content-Type",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            self.send_header("Content-Disposition", f'attachment; filename="{entry.get("name") or "car"}.xlsx"')
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 400)
+
+    def _export_zip(self) -> None:
+        parsed = urlparse(self.path)
+        from urllib.parse import parse_qs
+
+        qs = parse_qs(parsed.query)
+        map_name = (qs.get("map") or [None])[0]
+        try:
+            rows = filter_by_map(load_entries(self._ranking_file()), map_name)
+            dest = self.out_dir / "ranking-cars.zip"
+            export_zip(rows, dest)
+            data = dest.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", 'attachment; filename="ranking-cars.zip"')
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 400)
+
+    def do_PUT(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/ranking":
+            self.send_error(404, "Not found")
             return
-        body = self.rfile.read(length)
+        try:
+            body = self._read_body()
+            data = json.loads(body.decode("utf-8"))
+            if not isinstance(data, list):
+                raise ValueError("PUT body must be a JSON list")
+            write_entries(self._ranking_file(), data)
+            self._send_json({"ok": True, "n": len(data)})
+        except ValueError as exc:
+            code = 413 if "too large" in str(exc) else 400
+            self._send_json({"error": str(exc)}, code)
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        prefix = "/api/ranking/"
+        if not parsed.path.startswith(prefix) or parsed.path.endswith(".xlsx"):
+            self.send_error(404, "Not found")
+            return
+        entry_id = parsed.path[len(prefix) :].strip("/")
+        try:
+            ok = delete_entry(self._ranking_file(), entry_id)
+            self._send_json({"ok": ok}, 200 if ok else 404)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, 400)
+
+    def do_POST(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        try:
+            body = self._read_body()
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, 413)
+            return
+        if parsed.path == "/api/ranking":
+            try:
+                payload = json.loads(body.decode("utf-8"))
+                if payload.get("name") is not None and payload.get("summary") is not None:
+                    record = build_record(
+                        name=payload["name"],
+                        summary=payload["summary"],
+                        car_fields=payload.get("car_fields") or [],
+                        channels=payload.get("channels") or payload.get("summary", {}).get("channels"),
+                        v_cap=float(payload.get("v_cap") or 40.0),
+                        synthetic=bool(payload.get("synthetic", True)),
+                    )
+                    overwrite = bool(payload.get("overwrite"))
+                else:
+                    record = payload
+                    overwrite = bool(payload.get("overwrite"))
+                saved = save_entry(self._ranking_file(), record, overwrite=overwrite)
+                self._send_json(saved)
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, 400)
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 400)
+            return
         ctype = self.headers.get("Content-Type") or ""
         try:
             fields, files = _parse_multipart(ctype, body)
@@ -201,11 +333,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
 
             overrides = json.loads(fields.get("overrides") or "[]")
             car_xlsx = tmp / "car.xlsx"
-            # Same rule for cars: an upload wins; otherwise patch the default from the editor.
-            if "car" in files and files["car"][1]:
-                shutil.copyfile(car_src, car_xlsx)
-            else:
-                patch_car_xlsx(car_src, car_xlsx, overrides)
+            patch_car_xlsx(car_src, car_xlsx, overrides)
 
             map_xlsx = map_src
             # An uploaded Map workbook is the source of truth. The editor Shape table

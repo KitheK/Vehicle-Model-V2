@@ -251,6 +251,21 @@ def list_car_fields(path: str | Path) -> List[Dict[str, Any]]:
         wb.close()
 
 
+def _cell_value(raw: Any) -> Any:
+    if raw is None or raw == "":
+        return raw
+    if isinstance(raw, bool) or isinstance(raw, (int, float)):
+        return raw
+    text = str(raw).strip()
+    try:
+        number = float(text)
+    except ValueError:
+        return raw
+    if number.is_integer() and "." not in text and "e" not in text.lower():
+        return int(number)
+    return number
+
+
 def patch_car_xlsx(src: str | Path, dest: str | Path, overrides: Sequence[Dict[str, Any]]) -> Path:
     """Copy a Car workbook and set Info/FastestLap Value cells by Description."""
     src, dest = Path(src), Path(dest)
@@ -261,7 +276,7 @@ def patch_car_xlsx(src: str | Path, dest: str | Path, overrides: Sequence[Dict[s
         sheet = str(item.get("sheet") or "Info")
         desc = str(item.get("description") or "").strip().lower()
         if desc:
-            lookup[(sheet, desc)] = item.get("value")
+            lookup[(sheet, desc)] = _cell_value(item.get("value"))
     for sheet in ("Info", "FastestLap"):
         if sheet not in wb.sheetnames:
             continue

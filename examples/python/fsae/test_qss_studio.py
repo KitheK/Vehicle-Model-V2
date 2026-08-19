@@ -29,9 +29,42 @@ class TestQssStudio(unittest.TestCase):
             names = {f["description"] for f in fields}
             self.assertIn("Total Mass", names)
             self.assertIn("Maximum Power", names)
-            patch_car_xlsx(src, dst, [{"sheet": "Info", "description": "Total Mass", "value": 290.0}])
+            patch_car_xlsx(src, dst, [{"sheet": "Info", "description": "Total Mass", "value": "305"}])
             data = read_openvehicle_xlsx(dst)
-            self.assertAlmostEqual(data["mass"], 290.0)
+            self.assertAlmostEqual(data["mass"], 305.0)
+
+    def test_editor_overrides_apply_on_uploaded_car(self) -> None:
+        from fsae.qss_browser import run_studio
+
+        with tempfile.TemporaryDirectory() as tmp:
+            track = Path(tmp) / "track.xlsx"
+            car = Path(tmp) / "car.xlsx"
+            write_map_xlsx(
+                track,
+                {"name": "Sprint", "country": "CA", "type": "Temporary", "configuration": "Closed"},
+                (("Straight", 180.0, 0.0), ("Left", 50.0, 15.0), ("Straight", 180.0, 0.0), ("Left", 50.0, 15.0)),
+            )
+            write_ubco_2026_xlsx(car)
+            light = run_studio(
+                car_path=car,
+                map_path=track,
+                overrides=[{"sheet": "Info", "description": "Total Mass", "value": "220"},
+                           {"sheet": "FastestLap", "description": "Maximum Power", "value": 80}],
+                synthetic=True,
+                v_cap=40.0,
+                output=Path(tmp) / "light",
+            )
+            heavy = run_studio(
+                car_path=car,
+                map_path=track,
+                overrides=[{"sheet": "Info", "description": "Total Mass", "value": "420"},
+                           {"sheet": "FastestLap", "description": "Maximum Power", "value": 40}],
+                synthetic=True,
+                v_cap=40.0,
+                output=Path(tmp) / "heavy",
+            )
+            self.assertLess(light["lap_time"], heavy["lap_time"])
+            self.assertIn("car fields", light["source"])
 
     def test_write_map_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -57,9 +90,8 @@ class TestQssStudio(unittest.TestCase):
             self.assertLess(summary["lap_time"], 40.0)
             self.assertTrue((out / "hud.html").is_file())
             self.assertTrue((out / "results.html").is_file())
-            self.assertTrue((out / "studio.html").is_file())
-            self.assertTrue((out / "driver.xlsx").is_file())
-            self.assertIn("studio.html", (out / "hud.html").read_text(encoding="utf-8"))
+            self.assertTrue((out / "ranking.html").is_file())
+            self.assertIn("ranking.html", (out / "hud.html").read_text(encoding="utf-8"))
             table = gg_from_driver_xlsx(out / "driver.xlsx")
             self.assertIsNotNone(table)
             self.assertGreaterEqual(len(table.ay[0]), 2)

@@ -13,7 +13,9 @@ export class QssStore extends DurableObject {
     if (!buf) return new Response("missing", { status: 404 });
     const type = key.endsWith(".html")
       ? "text/html; charset=utf-8"
-      : "application/octet-stream";
+      : key.endsWith(".json")
+        ? "application/json; charset=utf-8"
+        : "application/octet-stream";
     return new Response(buf, {
       headers: { "content-type": type, "cache-control": "no-store" },
     });
@@ -34,6 +36,17 @@ export default {
       return store(env).fetch(new Request(new URL("https://store/" + name), request));
     }
 
+    if (path === "/api/ranking") {
+      if (request.method === "PUT") {
+        return store(env).fetch(new Request(new URL("https://store/ranking.json"), request));
+      }
+      const stored = await store(env).fetch(new Request("https://store/ranking.json"));
+      if (stored.ok) return stored;
+      return new Response("[]", {
+        headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+      });
+    }
+
     if (path === "/api/defaults") {
       return env.ASSETS.fetch(new URL("/defaults.json", url));
     }
@@ -45,6 +58,10 @@ export default {
 
     if (path === "/" || path === "/studio.html") {
       return env.ASSETS.fetch(new URL("/studio.html", request.url));
+    }
+
+    if (path === "/ranking.html") {
+      return env.ASSETS.fetch(new URL("/ranking.html", request.url));
     }
 
     return env.ASSETS.fetch(request);

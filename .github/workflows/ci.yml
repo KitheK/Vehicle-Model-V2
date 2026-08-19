@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE/examples/python"
-          python -m unittest fsae.test_openvehicle_xlsx fsae.test_opentrack_xlsx fsae.test_qss_viz fsae.test_xlsx_kit fsae.test_qss_studio
+          python -m unittest fsae.test_openvehicle_xlsx fsae.test_opentrack_xlsx fsae.test_qss_viz fsae.test_xlsx_kit fsae.test_qss_studio fsae.test_qss_ranking
 
   linux-fsae:
     name: Linux fsae-6dof

@@ -29,7 +29,7 @@ _INDEX = """<!DOCTYPE html>
 <link rel="canonical" href="hud.html"/>
 </head>
 <body>
-<p><a href="hud.html">HUD</a> · <a href="results.html">MATLAB</a> · <a href="studio.html">Studio</a></p>
+<p><a href="hud.html">HUD</a> · <a href="results.html">MATLAB</a> · <a href="studio.html">Studio</a> · <a href="ranking.html">Ranking</a></p>
 </body>
 </html>
 """
@@ -47,6 +47,8 @@ _RUNTIME_PY = (
     "qss_hud.html",
     "qss_results.html",
     "qss_studio.html",
+    "qss_ranking.html",
+    "qss_ranking.py",
 )
 
 
@@ -85,6 +87,7 @@ def main() -> int:
                 raise SystemExit(f"missing {name} in QSS output")
             shutil.copyfile(src, public / name)
         shutil.copyfile(_HERE / "qss_studio.html", public / "studio.html")
+        shutil.copyfile(_HERE / "qss_ranking.html", public / "ranking.html")
         (public / "index.html").write_text(_INDEX, encoding="utf-8")
         (public / "defaults.json").write_text(
             json.dumps(defaults_payload(tmp), default=str),
@@ -106,6 +109,7 @@ def main() -> int:
     print(f"Wrote {public}/hud.html")
     print(f"Wrote {public}/results.html")
     print(f"Wrote {public}/studio.html")
+    print(f"Wrote {public}/ranking.html")
     print(f"Wrote {public}/defaults.json")
     print(f"Wrote {public}/qss-runtime.zip")
     return 0

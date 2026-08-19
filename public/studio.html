@@ -58,6 +58,7 @@
     <a href="hud.html">HUD</a>
     <a href="results.html">MATLAB</a>
     <a class="active" href="studio.html">Studio</a>
+    <a href="ranking.html">Ranking</a>
   </nav>
 </header>
 <div id="page">
@@ -66,16 +67,19 @@
     <button id="reset">Reset defaults</button>
     <label>v cap [m/s] <input id="vcap" type="number" step="1" value="40"/></label>
     <label><input id="synthetic" type="checkbox" checked/> synthetic G-G</label>
+    <label>Save name <input id="rank-name" type="text" style="width:220px" placeholder="after calculate"/></label>
+    <button type="button" id="save-rank">Save to ranking</button>
     <span class="links">
       <a id="open-hud" href="hud.html" target="qss-hud">Open HUD</a>
       <a id="open-matlab" href="results.html" target="qss-matlab">Open MATLAB</a>
+      <a href="ranking.html">Open ranking</a>
     </span>
     <span class="status" id="status"></span>
   </div>
   <div class="cols">
     <section class="card">
       <h2>Car</h2>
-      <p class="hint">Default is UBCO 2026 EV. Choose an OpenVEHICLE .xlsx, click Process, then calculate. You can also edit values below.</p>
+      <p class="hint">Default is UBCO 2026 EV. Choose an OpenVEHICLE .xlsx, then edit values below. Process uploads &amp; calculate uses <strong>these table values</strong> (mass, power, aero, tires, brakes) for the lap.</p>
       <div class="drop">
         <input id="car-file" type="file" accept=".xlsx"/>
         <div class="row"><button type="button" id="car-process">Process car file</button></div>
@@ -122,7 +126,32 @@
 </div>
 <script>
 let defaults = null;
+let lastSummary = null;
+const LAST_RUN_KEY = 'qss-last-run';
 const $ = id => document.getElementById(id);
+
+function rememberLastRun() {
+  if (!lastSummary) return;
+  try {
+    localStorage.setItem(LAST_RUN_KEY, JSON.stringify({
+      summary: lastSummary,
+      name: $('rank-name').value || '',
+    }));
+  } catch (err) {}
+}
+
+function restoreLastRun() {
+  if (lastSummary) return;
+  try {
+    const raw = localStorage.getItem(LAST_RUN_KEY);
+    if (!raw) return;
+    const packed = JSON.parse(raw);
+    if (packed && packed.summary && packed.summary.lap_time != null) {
+      lastSummary = packed.summary;
+      if (packed.name && !$('rank-name').value) $('rank-name').value = packed.name;
+    }
+  } catch (err) {}
+}
 
 function setStatus(msg, cls) {
   const el = $('status');
@@ -173,16 +202,110 @@ function renderMap(map) {
   }
 }
 
-function collectOverrides() {
-  const out = [];
+function collectCarFields() {
+  const map = {};
+  for (const f of (defaults && defaults.car && defaults.car.fields) || []) {
+    map[f.sheet + '|' + f.description] = Object.assign({}, f);
+  }
   for (const tr of $('car-table').querySelectorAll('tbody tr')) {
-    out.push({
+    const k = tr.dataset.sheet + '|' + tr.dataset.description;
+    map[k] = Object.assign({}, map[k] || {}, {
       sheet: tr.dataset.sheet,
       description: tr.dataset.description,
+      category: tr.cells[0] ? tr.cells[0].textContent : '',
+      unit: tr.cells[3] ? tr.cells[3].textContent : '',
       value: tr.querySelector('input').value,
     });
   }
-  return out;
+  return Object.values(map);
+}
+
+async function fetchRanking() {
+  const urls = useBrowserQss()
+    ? ['/api/artifact/ranking.json', '/api/ranking']
+    : ['/api/ranking'];
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, { cache: 'no-store' });
+      if (!r.ok) continue;
+      const data = await r.json();
+      if (Array.isArray(data)) return data;
+    } catch (err) {}
+  }
+  return [];
+}
+
+async function saveToRanking(overwrite) {
+  const name = ($('rank-name').value || '').trim();
+  if (!name) throw new Error('Enter a name for this setup');
+  if (!lastSummary) throw new Error('Calculate a lap before saving to ranking');
+  const payload = {
+    name,
+    summary: lastSummary,
+    car_fields: collectCarFields(),
+    channels: lastSummary.channels,
+    v_cap: parseFloat($('vcap').value) || 40,
+    synthetic: $('synthetic').checked,
+    overwrite: !!overwrite,
+  };
+  if (!useBrowserQss()) {
+    const r = await fetch('/api/ranking', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      if (String(data.error || '').includes('already exists') && !overwrite) {
+        if (confirm('A setup with this name exists. Overwrite it?')) return saveToRanking(true);
+      }
+      throw new Error(data.error || r.statusText);
+    }
+    return data;
+  }
+  const py = await ensurePy();
+  py.globals.set('js_payload', JSON.stringify(payload));
+  const raw = await py.runPythonAsync(`
+from fsae.qss_ranking import build_record
+import json
+p = json.loads(js_payload)
+json.dumps(build_record(
+    name=p['name'],
+    summary=p['summary'],
+    car_fields=p.get('car_fields') or [],
+    channels=p.get('channels'),
+    v_cap=float(p.get('v_cap') or 40),
+    synthetic=bool(p.get('synthetic', True)),
+))
+`);
+  const record = JSON.parse(raw);
+  let list = await fetchRanking();
+  const idx = list.findIndex(e => e.name === record.name);
+  if (idx >= 0 && !overwrite) {
+    if (confirm('A setup with this name exists. Overwrite it?')) return saveToRanking(true);
+    throw new Error('save cancelled');
+  }
+  if (idx >= 0) {
+    record.id = list[idx].id;
+    list.splice(idx, 1);
+  }
+  list.push(record);
+  const r = await fetch('/api/artifact/ranking.json', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(list),
+  });
+  if (!r.ok) throw new Error('could not save ranking');
+  return record;
+}
+
+function collectOverrides() {
+  return collectCarFields().map(f => {
+    const raw = f.value;
+    const n = Number(raw);
+    const value = (raw !== '' && raw != null && Number.isFinite(n)) ? n : raw;
+    return { sheet: f.sheet, description: f.description, value };
+  });
 }
 
 function collectShape() {
@@ -386,16 +509,18 @@ json.dumps({'summary': summary, 'hud': hud, 'results': results})
       data = await r.json();
       if (!r.ok) throw new Error(data.error || r.statusText);
     }
+    lastSummary = data;
+    if (defaults && defaults.car) defaults.car.fields = collectCarFields();
+    $('rank-name').value = `${data.vehicle} · ${data.track} · ${Number(data.lap_time).toFixed(3)} s`;
+    rememberLastRun();
     const sp = data.speed_kmh || {};
     setStatus(
       `${data.vehicle} · ${data.track} · ${data.lap_time.toFixed(3)} s   ` +
-      `${sp.min.toFixed(1)} / ${sp.mean.toFixed(1)} / ${sp.max.toFixed(1)} km/h`,
+      `${sp.min.toFixed(1)} / ${sp.mean.toFixed(1)} / ${sp.max.toFixed(1)} km/h  — name it and Save to ranking`,
       'ok'
     );
     $('driver-last').textContent = `Wrote driver.xlsx (${data.n} samples). HUD and MATLAB updated.`;
     stampLinks();
-    window.open($('open-matlab').href, 'qss-matlab');
-    window.open($('open-hud').href, 'qss-hud');
   } catch (err) {
     setStatus(String(err.message || err), 'err');
   } finally {
@@ -403,7 +528,32 @@ json.dumps({'summary': summary, 'hud': hud, 'results': results})
   }
 };
 
-loadDefaults().catch(err => setStatus(String(err), 'err'));
+$('save-rank').onclick = () => {
+  saveToRanking(false)
+    .then(rec => setStatus('Saved to ranking: ' + rec.name, 'ok'))
+    .catch(err => setStatus(String(err.message || err), 'err'));
+};
+
+async function maybeLoadSetup() {
+  const id = new URLSearchParams(location.search).get('load');
+  if (!id) return;
+  const list = await fetchRanking();
+  const e = list.find(x => x.id === id);
+  if (!e) {
+    setStatus('Could not load that ranked setup', 'err');
+    return;
+  }
+  defaults = defaults || {};
+  defaults.car = defaults.car || {};
+  defaults.car.fields = (e.car && e.car.fields) || [];
+  renderCar(defaults.car.fields);
+  $('rank-name').value = e.name || '';
+  setStatus('Loaded setup ' + e.name + ' from ranking. Calculate to refresh HUD / MATLAB.', 'ok');
+}
+
+loadDefaults()
+  .then(() => { restoreLastRun(); return maybeLoadSetup(); })
+  .catch(err => setStatus(String(err), 'err'));
 </script>
 </body>
 </html>

@@ -52,10 +52,7 @@ def run_studio(
         overrides = overrides or []
 
         car_xlsx = tmp / "car.xlsx"
-        if car_path:
-            shutil.copyfile(car_src, car_xlsx)
-        else:
-            patch_car_xlsx(car_src, car_xlsx, overrides)
+        patch_car_xlsx(car_src, car_xlsx, overrides)
 
         map_xlsx = map_src
         if not map_path and shape:

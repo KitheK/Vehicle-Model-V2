@@ -48,13 +48,19 @@ belongs under `fsae-6dof` and `examples/python/fsae/`.
 Git deploy is a Worker plus static assets. Studio runs QSS in the browser
 (Pyodide) so Cloudflare does not need to push a container image.
 
+Build command (Cloudflare Git integration or local):
+
 ```bash
-PYTHONPATH=$VM/examples/python python3 $VM/examples/python/fsae/build_pages.py
+python3 -m pip install -r requirements.txt
+PYTHONPATH=examples/python python3 examples/python/fsae/build_pages.py
 npx wrangler deploy
 ```
 
-The first Studio visit downloads the Python runtime, then Process / Calculate
-work the same as locally. HUD and MATLAB are stored after each run.
+`build_pages.py` writes `public/` (HUD, MATLAB, Studio, Ranking, `qss-runtime.zip`).
+The Worker serves those assets and stores HUD / MATLAB / ranking.json in a
+Durable Object after each Studio run.
+
+Pages: `hud.html` · `results.html` · `studio.html` · `ranking.html`
 
 Local Studio is unchanged:
 

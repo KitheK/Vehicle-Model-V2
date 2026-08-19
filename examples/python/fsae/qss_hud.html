@@ -85,10 +85,17 @@
     <div>
       <button id="play">Pause</button>
       <span class="lap" id="lap">0.000 s</span>
+      <label style="color:#8b949e;font-size:12px;margin-left:12px">Ghost
+        <select id="ghost" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:3px 6px">
+          <option value="">None</option>
+        </select>
+      </label>
+      <span id="ghost-warn" style="color:#f5a623;font-size:12px;margin-left:8px"></span>
       <nav>
         <a class="active" href="hud.html">HUD</a>
         <a href="results.html">MATLAB</a>
         <a href="studio.html">Studio</a>
+        <a href="ranking.html">Ranking</a>
       </nav>
     </div>
   </header>
@@ -170,6 +177,72 @@ function atTime(t){
   while (hi-lo>1){ const m=(lo+hi)>>1; if (D.time[m] <= t) lo=m; else hi=m; }
   return lo + (t - D.time[lo]) / Math.max(1e-9, D.time[hi]-D.time[lo]);
 }
+function sampArr(arr, f, n){
+  if (!arr || arr.length < 2) return arr && arr.length ? arr[0] : 0;
+  const last = (n != null ? n : arr.length) - 1;
+  const i = Math.max(0, Math.min(last-1, Math.floor(f)));
+  return lerp(arr[i], arr[i+1], f-i);
+}
+function atTimeArr(times, t){
+  if (!times || !times.length) return 0;
+  const n = times.length;
+  if (t <= times[0]) return 0;
+  if (t >= times[n-1]) return n-1;
+  let lo=0, hi=n-1;
+  while (hi-lo>1){ const m=(lo+hi)>>1; if (times[m] <= t) lo=m; else hi=m; }
+  return lo + (t - times[lo]) / Math.max(1e-9, times[hi]-times[lo]);
+}
+function headingAtArr(G, f){
+  const n = G.x.length;
+  const i = Math.max(0, Math.min(n-2, Math.floor(f)));
+  const dx = G.x[i+1]-G.x[i], dy = G.y[i+1]-G.y[i];
+  if (Math.hypot(dx,dy) < 1e-9) return 0;
+  return Math.atan2(dy, dx);
+}
+
+let G = null;
+let ghostMap = '';
+async function loadRankingGhosts() {
+  const sel = document.getElementById('ghost');
+  if (!sel) return;
+  const want = new URLSearchParams(location.search).get('ghost') || '';
+  let list = [];
+  for (const url of ['/api/ranking', '/api/artifact/ranking.json']) {
+    try {
+      const r = await fetch(url, { cache: 'no-store' });
+      if (!r.ok) continue;
+      const data = await r.json();
+      if (Array.isArray(data)) { list = data; break; }
+    } catch (err) {}
+  }
+  sel.innerHTML = '<option value="">None</option>';
+  for (const e of list) {
+    const g = e.ghost || (e.matlab && {s:e.matlab.s, x:e.matlab.x, y:e.matlab.y, v:e.matlab.v, time:e.matlab.time});
+    if (!g || !g.x || !g.x.length) continue;
+    const opt = document.createElement('option');
+    opt.value = e.id;
+    opt.textContent = e.name || e.id;
+    opt.dataset.map = e.map || '';
+    sel.appendChild(opt);
+    opt._ghost = g;
+  }
+  sel.onchange = () => {
+    const opt = sel.selectedOptions[0];
+    G = opt && opt._ghost ? opt._ghost : null;
+    ghostMap = opt && opt.dataset ? opt.dataset.map : '';
+    const warn = document.getElementById('ghost-warn');
+    if (warn) {
+      warn.textContent = (G && ghostMap && D.track && ghostMap !== D.track)
+        ? 'Ghost is from a different map'
+        : (G ? '' : (sel.value ? 'no ghost path for this save' : ''));
+    }
+  };
+  if (want) {
+    sel.value = want;
+    sel.onchange();
+  }
+}
+
 function samp(arr, f){
   const i = Math.max(0, Math.min(N-2, Math.floor(f)));
   return lerp(arr[i], arr[i+1], f-i);
@@ -705,6 +778,21 @@ function drawTrack(f){
     ctx.beginPath(); ctx.moveTo(D.x[k], D.y[k]); ctx.lineTo(D.x[k+1], D.y[k+1]); ctx.stroke();
   }
 
+  if (G && G.x && G.x.length){
+    const gf = atTimeArr(G.time, tSim);
+    const gx = sampArr(G.x, gf), gy = sampArr(G.y, gf);
+    ctx.save();
+    ctx.translate(gx, gy);
+    ctx.rotate(headingAtArr(G, gf));
+    ctx.fillStyle = '#00e5ff';
+    ctx.strokeStyle = '#003844';
+    ctx.lineWidth = 0.08;
+    ctx.beginPath();
+    ctx.moveTo(1.7, 0); ctx.lineTo(-0.95, 0.55); ctx.lineTo(-0.55, 0); ctx.lineTo(-0.95, -0.55);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
   const delta = samp(D.delta,f)*Math.PI/180;
   const spin = samp(D.s,f) / 0.245;
   ctx.translate(x, y);
@@ -780,6 +868,12 @@ function drawMini(f){
   ctx.beginPath(); ctx.moveTo(9,0); ctx.lineTo(-6,5); ctx.lineTo(-3,0); ctx.lineTo(-6,-5); ctx.closePath();
   ctx.fill(); ctx.stroke();
   ctx.restore();
+  if (G && G.x && G.x.length){
+    const gf = atTimeArr(G.time, tSim);
+    const gpx=X(sampArr(G.x, gf)), gpy=Y(sampArr(G.y, gf));
+    ctx.fillStyle='#00e5ff';
+    ctx.beginPath(); ctx.arc(gpx, gpy, 5, 0, Math.PI*2); ctx.fill();
+  }
 }
 
 function drawGG(f){
@@ -924,6 +1018,7 @@ window.addEventListener('keydown', e => {
   }
 });
 requestAnimationFrame(frame);
+loadRankingGhosts();
 
 if (webglLive){
   loadCarModel().then(template => {
