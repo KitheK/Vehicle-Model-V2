@@ -12,11 +12,13 @@
                font-family: ui-sans-serif, system-ui, sans-serif; }
   #wrap { display:grid; grid-template-columns: 1fr 380px; grid-template-rows: auto 1fr 172px;
           height:100%; gap:8px; padding:8px; }
-  header { grid-column:1 / -1; display:flex; align-items:baseline; justify-content:space-between;
-           padding:6px 10px; background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+  header { grid-column:1 / -1; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
+           gap:8px; padding:6px 10px; background:var(--panel); border:1px solid var(--line); border-radius:8px; }
   header h1 { font-size:18px; margin:0; font-weight:650; }
   header .meta { color:var(--muted); font-size:13px; }
   header .lap { color:var(--orange); font-variant-numeric: tabular-nums; font-size:20px; }
+  header .tools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; justify-content:flex-end; }
+  header nav { display:flex; flex-wrap:wrap; flex-shrink:0; }
   #stage { position:relative; background:#010409; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
   #track { width:100%; height:100%; display:block; }
   #dynamics-overlay { position:relative; width:100%; height:400px; overflow:hidden;
@@ -82,21 +84,21 @@
       <h1 id="title">HUD</h1>
       <div class="meta" id="clock">t = 0.00 s</div>
     </div>
-    <div>
-      <button id="play">Pause</button>
-      <span class="lap" id="lap">0.000 s</span>
-      <label style="color:#8b949e;font-size:12px;margin-left:12px">Ghost
-        <select id="ghost" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:3px 6px">
-          <option value="">None</option>
-        </select>
-      </label>
-      <span id="ghost-warn" style="color:#f5a623;font-size:12px;margin-left:8px"></span>
+    <div class="tools">
       <nav>
         <a class="active" href="hud.html">HUD</a>
         <a href="results.html">MATLAB</a>
         <a href="studio.html">Studio</a>
         <a href="ranking.html">Ranking</a>
       </nav>
+      <button id="play">Pause</button>
+      <span class="lap" id="lap">0.000 s</span>
+      <label style="color:#8b949e;font-size:12px">Ghost
+        <select id="ghost" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:3px 6px">
+          <option value="">None</option>
+        </select>
+      </label>
+      <span id="ghost-warn" style="color:#f5a623;font-size:12px"></span>
     </div>
   </header>
   <div id="stage">

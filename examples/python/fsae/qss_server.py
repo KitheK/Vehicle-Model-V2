@@ -115,6 +115,9 @@ class StudioHandler(SimpleHTTPRequestHandler):
             html = (_HERE / "qss_ranking.html").read_bytes()
             self._send_bytes(html, "text/html; charset=utf-8")
             return
+        if path in ("/hud.html", "/results.html"):
+            self._send_viz_page("hud" if path == "/hud.html" else "results")
+            return
         if path == "/api/ranking":
             try:
                 self._send_json(load_entries(self.out_dir / "ranking.json"))
@@ -155,6 +158,37 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 self._send_file(candidate, ctype)
                 return
         self.send_error(404, "Not found")
+
+    def _send_viz_page(self, kind: str) -> None:
+        """Always use the current HUD/MATLAB template so Ranking is in the nav."""
+        from fsae.qss_viz import apply_payload_json, extract_payload_json
+
+        tmpl = _HERE / ("qss_hud.html" if kind == "hud" else "qss_results.html")
+        baked = self.out_dir / ("hud.html" if kind == "hud" else "results.html")
+        public = _ROOT / "public" / ("hud.html" if kind == "hud" else "results.html")
+        if not tmpl.is_file():
+            src = baked if baked.is_file() else public
+            if src.is_file():
+                self._send_file(src, "text/html; charset=utf-8")
+                return
+            self.send_error(404, "Not found")
+            return
+        html = tmpl.read_text(encoding="utf-8")
+        payload = None
+        for cand in (baked, public):
+            if cand.is_file():
+                payload = extract_payload_json(cand.read_text(encoding="utf-8"))
+                if payload:
+                    break
+        if payload:
+            html = apply_payload_json(html, payload)
+        elif "__PAYLOAD__" in html:
+            if public.is_file():
+                self._send_file(public, "text/html; charset=utf-8")
+                return
+            self.send_error(404, "Not found")
+            return
+        self._send_bytes(html.encode("utf-8"), "text/html; charset=utf-8")
 
     def _ranking_file(self) -> Path:
         return self.out_dir / "ranking.json"

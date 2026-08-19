@@ -9,11 +9,12 @@
   * { box-sizing: border-box; }
   html, body { margin:0; background:var(--bg); color:var(--fg);
                font-family: ui-sans-serif, system-ui, sans-serif; }
-  header { display:flex; align-items:baseline; justify-content:space-between;
+  header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px;
            padding:10px 16px; background:var(--header); color:#c9d1d9; }
   header h1 { font-size:18px; margin:0; color:#fff; }
   header .meta { color:#8b949e; font-size:13px; margin-top:4px; }
   header .lap { color:var(--orange); font-variant-numeric: tabular-nums; font-size:20px; }
+  nav { display:flex; flex-wrap:wrap; flex-shrink:0; }
   nav a { color:#f5a623; margin-left:14px; text-decoration:none; font-size:13px; }
   nav a.active { font-weight:700; }
   button { background:#21262d; color:#c9d1d9; border:1px solid #30363d; border-radius:6px;
@@ -35,14 +36,14 @@
     <div class="meta" id="clock">t = 0.00 s</div>
   </div>
   <div>
-    <button id="play">Pause</button>
-    <span class="lap" id="lap">0.000 s</span>
     <nav>
       <a href="hud.html">HUD</a>
       <a class="active" href="results.html">MATLAB</a>
       <a href="studio.html">Studio</a>
       <a href="ranking.html">Ranking</a>
     </nav>
+    <button id="play">Pause</button>
+    <span class="lap" id="lap">0.000 s</span>
   </div>
 </header>
 <div id="page">

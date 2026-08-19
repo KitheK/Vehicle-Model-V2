@@ -448,6 +448,52 @@ def _payload(view: LapView, cam_height: float = 80.0, half_width: float = 3.5) -
     }
 
 
+def extract_payload_json(html: str) -> str | None:
+    """Pull the `const D = {...}` JSON object out of a baked HUD/MATLAB page."""
+    marker = "const D = "
+    start = html.find(marker)
+    if start < 0:
+        return None
+    i = html.find("{", start)
+    if i < 0:
+        return None
+    depth = 0
+    in_str = False
+    escape = False
+    quote = ""
+    for j in range(i, len(html)):
+        ch = html[j]
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == quote:
+                in_str = False
+            continue
+        if ch in ('"', "'"):
+            in_str = True
+            quote = ch
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return html[i : j + 1]
+    return None
+
+
+def apply_payload_json(template_html: str, payload_json: str) -> str:
+    """Stamp a lap payload into a HUD/MATLAB template (Ranking nav stays on the template)."""
+    if "__PAYLOAD__" in template_html:
+        return template_html.replace("__PAYLOAD__", payload_json)
+    existing = extract_payload_json(template_html)
+    if existing is None:
+        return template_html
+    return template_html.replace(existing, payload_json, 1)
+
+
 def _write_html(template: Path, payload: dict, path: str | Path) -> Path:
     html = template.read_text(encoding="utf-8").replace(
         "__PAYLOAD__", json.dumps(payload, separators=(",", ":"))

@@ -127,6 +127,7 @@ class TestQssViz(unittest.TestCase):
             self.assertIn(str(round(view.lap_time, 3)).split(".")[0], text)
             self.assertIn("results.html", text)
             self.assertIn("studio.html", text)
+            self.assertIn("ranking.html", text)
             self.assertIn("GLTFLoader", text)
             self.assertIn("buildUbcoCar", text)
             self.assertIn("loadCarModel", text)
@@ -138,6 +139,7 @@ class TestQssViz(unittest.TestCase):
             self.assertIn("c-kappa", matlab)
             self.assertIn("GGV usage", matlab)
             self.assertIn('"kappa":', matlab)
+            self.assertIn("ranking.html", matlab)
 
     def test_2019_endurance_qss_artifacts(self) -> None:
         xlsx = Path(__file__).resolve().parents[3] / "database/tracks/fsae_2019_endurance/2019_endurance.xlsx"

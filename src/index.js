@@ -26,6 +26,71 @@ function store(env) {
   return env.QSS_STORE.get(env.QSS_STORE.idFromName("studio"));
 }
 
+function extractPayloadJson(html) {
+  const marker = "const D = ";
+  const start = html.indexOf(marker);
+  if (start < 0) return null;
+  const i = html.indexOf("{", start);
+  if (i < 0) return null;
+  let depth = 0, inStr = false, escape = false, quote = "";
+  for (let j = i; j < html.length; j++) {
+    const ch = html[j];
+    if (inStr) {
+      if (escape) escape = false;
+      else if (ch === "\\") escape = true;
+      else if (ch === quote) inStr = false;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inStr = true;
+      quote = ch;
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return html.slice(i, j + 1);
+    }
+  }
+  return null;
+}
+
+function applyPayloadJson(templateHtml, payloadJson) {
+  if (templateHtml.includes("__PAYLOAD__")) {
+    return templateHtml.replace("__PAYLOAD__", payloadJson);
+  }
+  const existing = extractPayloadJson(templateHtml);
+  if (!existing) return templateHtml;
+  return templateHtml.replace(existing, payloadJson);
+}
+
+async function serveLapPage(request, env, name) {
+  const asset = await env.ASSETS.fetch(new URL("/" + name, request.url));
+  if (!asset.ok) return asset;
+  let html = await asset.text();
+  const stored = await store(env).fetch(new Request("https://store/" + name));
+  if (stored.ok) {
+    const old = await stored.text();
+    const payload = extractPayloadJson(old);
+    if (payload) html = applyPayloadJson(html, payload);
+  }
+  if (!html.includes("ranking.html")) {
+    html = html.replace(
+      "</nav>",
+      '<a href="ranking.html">Ranking</a>\n    </nav>'
+    );
+    if (!html.includes('href="ranking.html"')) {
+      html = html.replace(
+        '<a href="studio.html">Studio</a>',
+        '<a href="studio.html">Studio</a>\n        <a href="ranking.html">Ranking</a>'
+      );
+    }
+  }
+  return new Response(html, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -52,8 +117,7 @@ export default {
     }
 
     if (path === "/hud.html" || path === "/results.html") {
-      const stored = await store(env).fetch(new Request("https://store/" + path.slice(1)));
-      if (stored.ok) return stored;
+      return serveLapPage(request, env, path.slice(1));
     }
 
     if (path === "/" || path === "/studio.html") {
