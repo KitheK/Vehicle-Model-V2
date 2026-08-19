@@ -1,0 +1,17 @@
+# Cloudflare container image. Do not ship the C++ tree, 12MB GLB, or git metadata.
+.git
+.github
+.venv
+.wrangler
+node_modules
+build
+docs
+src
+qss_out
+public/car.glb
+**/*.pyc
+**/__pycache__
+**/*.glb
+examples/python/kart
+examples/python/f1
+examples/python/circuit_preprocessor

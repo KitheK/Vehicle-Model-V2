@@ -1,9 +1,36 @@
 {
-  // Static HUD / MATLAB / Studio pages for Cloudflare (`npx wrangler deploy`).
   "name": "vehicle-model-v2",
+  "main": "src/index.js",
   "compatibility_date": "2026-08-19",
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
   "assets": {
     "directory": "./public",
-    "not_found_handling": "404-page"
-  }
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "containers": [
+    {
+      "class_name": "QssContainer",
+      "image": "./Dockerfile",
+      "instance_type": "basic",
+      "max_instances": 2
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "QSS_CONTAINER",
+        "class_name": "QssContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["QssContainer"]
+    }
+  ]
 }

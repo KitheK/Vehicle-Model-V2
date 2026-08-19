@@ -43,16 +43,28 @@ Kart (`kart-6dof`) and F1 (`f1-3dof`) remain in the engine so the shared
 chassis / tire / G-G / Ipopt stack still builds and tests. New model work
 belongs under `fsae-6dof` and `examples/python/fsae/`.
 
-## Cloudflare Pages
+## Cloudflare
 
-Wrangler needs a folder of HTML. Generate it, then `npx wrangler deploy` works:
+The live site is the same Python Studio server as local, running in a
+Cloudflare Container. Studio can load defaults, process Car/Map/Driver
+`.xlsx` uploads, run QSS, and rewrite HUD / MATLAB. `car.glb` is still
+served from Worker static assets.
+
+Deploy from a machine (or Workers Build) with Docker:
 
 ```bash
-PYTHONPATH=$VM/examples/python python3 $VM/examples/python/fsae/build_pages.py
+npm install
 npx wrangler deploy
 ```
 
-`wrangler.jsonc` points at `./public`. Studio uploads need the local `qss_server.py`; the hosted HUD and MATLAB pages are static.
+Leave the Cloudflare deploy command as `npx wrangler deploy`. The first
+container rollout takes a few minutes. `/health` should return `ok`.
+
+Local Studio is unchanged:
+
+```bash
+python3 $VM/examples/python/fsae/qss_server.py --port 18080 -o $VM/qss_out
+```
 
 ## How to run
 

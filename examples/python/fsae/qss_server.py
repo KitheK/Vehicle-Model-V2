@@ -93,6 +93,9 @@ class StudioHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == "/health":
+            self._send_bytes(b"ok\n", "text/plain; charset=utf-8")
+            return
         if path in ("/", "/studio.html"):
             html = (_HERE / "qss_studio.html").read_bytes()
             self._send_bytes(html, "text/html; charset=utf-8")
