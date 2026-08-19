@@ -6,6 +6,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -15,6 +16,29 @@ from fsae.opentrack_xlsx import mesh_opentrack, write_fsae_skidpad_xlsx  # noqa:
 from fsae.qss_channels import bicycle_steer, reconstruct_lap  # noqa: E402
 from fsae.qss_lap import GGTable, qss_lap  # noqa: E402
 from fsae.qss_viz import plot_hud_frame, plot_openlap_results, write_hud_html, write_results_html  # noqa: E402
+
+
+class _HudStructureParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.stack: list[str | None] = []
+        self.parents: dict[str, str | None] = {}
+        self.wheels: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = dict(attrs)
+        node_id = values.get("id")
+        parent = next((item for item in reversed(self.stack) if item), None)
+        if node_id:
+            self.parents[node_id] = parent
+        if values.get("data-wheel"):
+            self.wheels.append(values["data-wheel"] or "")
+        if tag not in {"meta", "link", "input", "br", "img", "hr"}:
+            self.stack.append(node_id)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag not in {"meta", "link", "input", "br", "img", "hr"} and self.stack:
+            self.stack.pop()
 
 
 def _table() -> GGTable:
@@ -28,6 +52,14 @@ def _table() -> GGTable:
 
 
 class TestQssViz(unittest.TestCase):
+    def test_vehicle_dynamics_is_a_separate_side_panel_card(self) -> None:
+        parser = _HudStructureParser()
+        parser.feed((Path(__file__).with_name("qss_hud.html")).read_text(encoding="utf-8"))
+        self.assertEqual(parser.parents.get("dynamics-card"), "side")
+        self.assertEqual(parser.parents.get("dynamics-overlay"), "dynamics-card")
+        self.assertEqual(parser.parents.get("car3d"), "dynamics-overlay")
+        self.assertEqual(sorted(parser.wheels), ["fl", "fr", "rl", "rr"])
+
     def test_bicycle_steer_grows_with_curvature(self) -> None:
         s0, d0, _ = bicycle_steer(12.0, 0.0, 277.0, 1.62, 0.51, 800.0, 1000.0, 5.0)
         s1, d1, b1 = bicycle_steer(12.0, 1.0 / 9.125, 277.0, 1.62, 0.51, 800.0, 1000.0, 5.0)
