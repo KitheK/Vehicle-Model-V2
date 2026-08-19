@@ -80,6 +80,16 @@ class StudioHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _send_file(self, path: Path, content_type: str, cache: str = "no-store") -> None:
+        size = path.stat().st_size
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(size))
+        self.send_header("Cache-Control", cache)
+        self.end_headers()
+        with path.open("rb") as fh:
+            shutil.copyfileobj(fh, self.wfile, length=1024 * 1024)
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
@@ -96,23 +106,24 @@ class StudioHandler(SimpleHTTPRequestHandler):
             return
         if path == "/car.glb":
             for cand in (
+                _ROOT / "public" / "car.glb",
                 _HERE / "models" / "formula_student.glb",
                 _HERE / "car.glb",
                 self.out_dir / "car.glb",
                 Path(r"c:\Users\USER\Downloads\car model 3d\formula_student.glb"),
             ):
                 if cand.is_file():
-                    self._send_bytes(cand.read_bytes(), "model/gltf-binary")
+                    self._send_file(cand, "model/gltf-binary", cache="public, max-age=3600")
                     return
             self.send_error(404, "car.glb not found")
             return
         rel = path.lstrip("/")
-        candidate = self.out_dir / rel
-        if candidate.is_file() and candidate.resolve().is_relative_to(self.out_dir.resolve()):
-            data = candidate.read_bytes()
-            ctype = self.guess_type(str(candidate))
-            self._send_bytes(data, ctype)
-            return
+        for folder in (self.out_dir, _ROOT / "public"):
+            candidate = folder / rel
+            if candidate.is_file() and candidate.resolve().is_relative_to(folder.resolve()):
+                ctype = self.guess_type(str(candidate)) or "application/octet-stream"
+                self._send_file(candidate, ctype)
+                return
         self.send_error(404, "Not found")
 
     def do_POST(self) -> None:  # noqa: N802

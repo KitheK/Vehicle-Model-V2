@@ -131,6 +131,8 @@ class TestQssViz(unittest.TestCase):
             self.assertIn("buildUbcoCar", text)
             self.assertIn("loadCarModel", text)
             self.assertIn("MODEL_PATH", text)
+            self.assertIn("car.glb", text)
+            self.assertNotIn("applyNeutralMaterials", text)
             matlab = results.read_text(encoding="utf-8")
             self.assertIn("LonAcc", matlab)
             self.assertIn("c-kappa", matlab)

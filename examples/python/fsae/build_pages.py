@@ -51,6 +51,10 @@ def main() -> int:
                 raise SystemExit(f"missing {name} in QSS output")
             shutil.copyfile(src, public / name)
         (public / "index.html").write_text(_INDEX, encoding="utf-8")
+        car = _ROOT / "public" / "car.glb"
+        src_car = _HERE / "models" / "formula_student.glb"
+        if not car.is_file() and src_car.is_file():
+            shutil.copyfile(src_car, car)
         (public / "404.html").write_text(
             "<!DOCTYPE html><html lang='en'><meta charset='utf-8'/>"
             "<title>Not found</title><p>Not found. "

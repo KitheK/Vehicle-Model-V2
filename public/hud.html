@@ -371,31 +371,6 @@ function configureRenderer(r){
   r.toneMappingExposure = 1.15;
 }
 
-function applyNeutralMaterials(root){
-  const neutral = new Map();
-  root.traverse(obj => {
-    if (!obj.isMesh) return;
-    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-    const converted = mats.map(m => {
-      if (!m) return m;
-      if (neutral.has(m.uuid)) return neutral.get(m.uuid);
-      const name = (m.name || '').toLowerCase();
-      let color = 0xc7c9cb, metalness = 0.16, roughness = 0.68;
-      if (name.includes('rubber')) { color = 0x242628; metalness = 0.02; roughness = 0.94; }
-      else if (/(carbon|headrest|display|plastic)/.test(name)) { color = 0x4b4e51; metalness = 0.08; roughness = 0.78; }
-      else if (/(alloy|metal|rim|hub|disc|spring|shaft|bolt)/.test(name)) { color = 0x85898d; metalness = 0.58; roughness = 0.42; }
-      const mat = new THREE.MeshStandardMaterial({color, metalness, roughness});
-      mat.name = 'Neutral ' + (m.name || 'material');
-      mat.side = m.side;
-      mat.transparent = m.transparent;
-      mat.opacity = m.opacity;
-      neutral.set(m.uuid, mat);
-      return mat;
-    });
-    obj.material = Array.isArray(obj.material) ? converted : converted[0];
-  });
-}
-
 function wheelCenters(root){
   root.updateMatrixWorld(true);
   const out = {};
@@ -528,7 +503,6 @@ function normalizeGltfScene(scene){
   const box = new THREE.Box3().setFromObject(fitted);
   fitted.position.y -= box.min.y;
   fitted.updateMatrixWorld(true);
-  applyNeutralMaterials(fitted);
   const pivots = pivotNamedWheels(fitted);
   if (pivots.length !== 4) throw new Error('expected 4 WHEEL_* nodes, found ' + pivots.length);
   const slots = slotWheels(pivots);
