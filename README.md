@@ -43,6 +43,17 @@ Kart (`kart-6dof`) and F1 (`f1-3dof`) remain in the engine so the shared
 chassis / tire / G-G / Ipopt stack still builds and tests. New model work
 belongs under `fsae-6dof` and `examples/python/fsae/`.
 
+## Cloudflare Pages
+
+Wrangler needs a folder of HTML. Generate it, then `npx wrangler deploy` works:
+
+```bash
+PYTHONPATH=$VM/examples/python python3 $VM/examples/python/fsae/build_pages.py
+npx wrangler deploy
+```
+
+`wrangler.jsonc` points at `./public`. Studio uploads need the local `qss_server.py`; the hosted HUD and MATLAB pages are static.
+
 ## How to run
 
 Assume `$VM` is this repository root. Build with GCC (see [Installation](#installation)).

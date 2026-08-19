@@ -1,0 +1,9 @@
+{
+  // Static HUD / MATLAB / Studio pages for Cloudflare (`npx wrangler deploy`).
+  "name": "vehicle-model-v2",
+  "compatibility_date": "2026-08-19",
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "404-page"
+  }
+}
