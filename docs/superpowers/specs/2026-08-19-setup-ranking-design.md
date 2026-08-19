@@ -13,6 +13,7 @@ Let UBCO Motorsports compare car **builds** (mass, power, aero, suspension numbe
 - Persist locally as `qss_out/ranking.json`. On Cloudflare, persist the same JSON in `QssStore` under `ranking.json`. Ghost channels are inlined in each record (downsampled). No separate ghost files in v1.
 - Do not change the C++ `fsae-6dof` ODE. Ranking consumes QSS summaries and car field snapshots only.
 - Out of v1: four-car overlay, energy/SOC rank, deleting Cloudflare Containers, live two-editor Studio.
+- Each ranked setup can be downloaded as a **Car `.xlsx`** (OpenVEHICLE workbook) so the team has a spec file to build toward.
 
 ## Ranking record
 
@@ -52,7 +53,8 @@ Each saved entry is JSON:
 - Table: name, map, lap time, min/mean/max km/h, peak ay, mass, max power, saved at.
 - Click column headers to sort; indicator on the active column.
 - Map filter: dropdown, default = latest run’s map; option “All maps”.
-- Actions per row: **Ghost on HUD**, **Load setup** (writes car fields back into Studio), **Delete**.
+- Actions per row: **Ghost on HUD**, **Load setup** (writes car fields back into Studio), **Download .xlsx** (Car workbook), **Delete**.
+- **Download all .xlsx** exports every visible (filtered) row as separate files, or a zip if more than one. Filename: `{name-slug}_{map-slug}.xlsx`.
 - Empty state: “No saved setups. Calculate in Studio, then Save to ranking.”
 
 **HUD** (`qss_hud.html`)
@@ -63,6 +65,18 @@ Each saved entry is JSON:
 - Mini-map: ghost position as a second marker.
 
 MATLAB results page is unchanged except a Ranking nav link.
+
+## Car `.xlsx` export
+
+The download is a standard **Car** workbook (`Format` Kind = `car`, sheets Info + Torque Curve + FastestLap), not a ranking dump.
+
+Build method: copy the UBCO 2026 template (`ubco-2026-ev.xlsx`, also in `qss-runtime.zip`) and apply the saved `car.fields` through `patch_car_xlsx` (match sheet + Description). Torque curve stays the template’s unless a later run uploaded a full car file; if the ranking record includes an uploaded workbook blob, that file is the export instead.
+
+**Local:** `GET /api/ranking/<id>/car.xlsx` returns the file (`Content-Disposition` attachment).
+
+**Cloudflare / Pyodide:** Ranking page builds the workbook in the browser with the same Python helper and triggers a download. No extra Worker binary store.
+
+Name in the Info sheet is set to the ranking entry `name` so the file is identifiable on a shop laptop.
 
 ## Data flow
 
@@ -99,12 +113,13 @@ HUD
 
 ## Tests
 
-- `test_qss_ranking.py`: create two fake summaries, save, sort by lap time and by mass, filter by map, delete, downsample ghost length.
+- `test_qss_ranking.py`: create two fake summaries, save, sort by lap time and by mass, filter by map, delete, downsample ghost length; **export one entry to `.xlsx` and assert Kind=car, Total Mass matches the snapshot**.
 - HUD template contains ghost select and a second trail draw path (`G.` or `ghost`).
 - Studio template contains Save to ranking and ranking.html nav.
+- Ranking template contains Download .xlsx.
 - Existing QSS / Studio tests still pass.
 
 ## Files (implementation, not this spec)
 
 - New: `examples/python/fsae/qss_ranking.py`, `qss_ranking.html`, `test_qss_ranking.py`
-- Edit: `qss_studio.html`, `qss_hud.html`, `qss_results.html`, `qss_server.py`, `qss_browser.py`, `src/index.js`, `build_pages.py`, nav on all three pages
+- Edit: `qss_studio.html`, `qss_hud.html`, `qss_results.html`, `qss_server.py`, `qss_browser.py`, `xlsx_kit.py` (export helper if needed), `src/index.js`, `build_pages.py`, nav on all pages
