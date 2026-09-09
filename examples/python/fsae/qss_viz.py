@@ -445,6 +445,7 @@ def _payload(view: LapView, cam_height: float = 80.0, half_width: float = 3.5) -
         "envAxMax": _round_list(view.env_ax_max, 4),
         "envAxMin": _round_list(view.env_ax_min, 4),
         "envSpeed": round(view.env_speed, 3),
+        "fromRest": bool(getattr(view, "from_rest", False)),
     }
 
 

@@ -42,6 +42,30 @@ from fsae.xlsx_kit import detect_kind, patch_car_xlsx, preview_workbook  # noqa:
 MAX_BODY = 25 * 1024 * 1024
 
 
+def _flag(fields: Dict[str, str], key: str, default: bool = False) -> bool:
+    """Parse a form checkbox/switch. ``1``/``true`` are on; also reads ``run_opts`` JSON."""
+    raw: Any = fields.get(key)
+    if raw is None or str(raw).strip() == "":
+        blob = fields.get("run_opts") or fields.get("settings") or ""
+        if blob:
+            try:
+                parsed = json.loads(blob)
+                if isinstance(parsed, dict) and key in parsed:
+                    raw = parsed[key]
+            except json.JSONDecodeError:
+                raw = None
+    if raw is None or str(raw).strip() == "":
+        return default
+    if isinstance(raw, bool):
+        return raw
+    s = str(raw).strip().lower()
+    if s in {"1", "true", "yes", "on"}:
+        return True
+    if s in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 def _parse_multipart(content_type: str, body: bytes) -> Tuple[Dict[str, str], Dict[str, Tuple[str, bytes]]]:
     preamble = f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode()
     msg = email.parser.BytesParser(policy=email.policy.default).parsebytes(preamble + body)
@@ -105,7 +129,18 @@ class StudioHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/health":
-            self._send_bytes(b"ok\n", "text/plain; charset=utf-8")
+            import inspect
+
+            from fsae.qss_job import run_qss_job
+            from fsae.qss_lap import qss_lap
+
+            self._send_json(
+                {
+                    "ok": True,
+                    "qss_lap_from_rest": "from_rest" in inspect.signature(qss_lap).parameters,
+                    "run_qss_job_from_rest": "from_rest" in inspect.signature(run_qss_job).parameters,
+                }
+            )
             return
         if path in ("/", "/studio.html"):
             html = (_HERE / "qss_studio.html").read_bytes()
@@ -396,9 +431,11 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 map_xlsx = tmp / "map.xlsx"
                 write_map_xlsx(map_xlsx, info, shape)
 
-            synthetic = str(fields.get("synthetic") or "true").lower() not in {"0", "false", "no"}
+            synthetic = _flag(fields, "synthetic", True)
+            from_rest = _flag(fields, "from_rest", False)
             v_cap = float(fields.get("v_cap") or 40.0)
             cam_height = float(fields.get("cam_height") or 80.0)
+            sys.stderr.write("QSS run from_rest=%s v_cap=%s\n" % (from_rest, v_cap))
             self.out_dir.mkdir(parents=True, exist_ok=True)
             return run_qss_job(
                 car_xlsx,
@@ -408,6 +445,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 synthetic=synthetic,
                 v_cap=v_cap,
                 cam_height=cam_height,
+                from_rest=from_rest,
                 plots=False,
             )
         finally:

@@ -80,6 +80,31 @@ class TestOpenTrackXlsx(unittest.TestCase):
             self.assertEqual(len(result.v), len(mesh.s))
             self.assertTrue(all(v > 1.0 for v in result.v))
 
+    def test_qss_lap_from_rest_starts_near_zero(self) -> None:
+        from fsae.opentrack_xlsx import OpenTrackInfo, write_map_xlsx
+
+        with tempfile.TemporaryDirectory() as tmp:
+            xlsx = Path(tmp) / "straight.xlsx"
+            write_map_xlsx(
+                xlsx,
+                OpenTrackInfo(name="Accel", configuration="Open"),
+                [("Straight", 400.0, 0.0)],
+            )
+            mesh = mesh_opentrack(xlsx, mesh_size=5.0)
+            ay = [0.0, 0.5, 1.0]
+            table = GGTable(
+                speeds=[15.0],
+                ay=[ay],
+                ax_max=[[0.50, 0.40, 0.20]],
+                ax_min=[[-0.90, -0.70, -0.30]],
+            )
+            flying = qss_lap(mesh, table, v_cap=40.0, from_rest=False)
+            standing = qss_lap(mesh, table, v_cap=40.0, from_rest=True)
+            self.assertLess(standing.v[0], 1.0)
+            self.assertGreater(flying.v[0], 10.0)
+            self.assertGreater(max(standing.v) * 3.6, 100.0)
+            self.assertGreater(standing.lap_time, flying.lap_time)
+
 
 if __name__ == "__main__":
     unittest.main()

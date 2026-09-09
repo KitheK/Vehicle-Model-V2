@@ -105,6 +105,8 @@ class TestQssViz(unittest.TestCase):
             self.assertIn("requestAnimationFrame", text)
             self.assertIn("drawUbcoCar", text)
             self.assertIn("emptyCar", text)
+            self.assertIn("let playing = !D.fromRest", text)
+            self.assertIn('"fromRest":false', text)
             self.assertNotIn("let trackCar = buildUbcoCar()", text)
             self.assertNotIn("keeping procedural car", text)
             self.assertIn("buildUbcoCar", text)

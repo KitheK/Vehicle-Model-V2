@@ -19,6 +19,10 @@
            padding:8px 14px; cursor:pointer; }
   button.primary { background:var(--orange); color:#fff; border-color:var(--orange); font-weight:650; }
   button:disabled { opacity:0.55; cursor:wait; }
+  .start-switch { display:inline-flex; border:1px solid #30363d; border-radius:8px; overflow:hidden;
+                  background:#21262d; }
+  .start-switch .seg { border:0; border-radius:0; background:transparent; color:#8b949e; }
+  .start-switch .seg.on { background:var(--orange); color:#fff; font-weight:650; }
   #page { max-width:1280px; margin:0 auto; padding:16px 16px 48px; }
   .toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; }
   .toolbar label { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:6px; }
@@ -67,6 +71,10 @@
     <button id="reset">Reset defaults</button>
     <label>v cap [m/s] <input id="vcap" type="number" step="1" value="40"/></label>
     <label><input id="synthetic" type="checkbox" checked/> synthetic G-G</label>
+    <div class="start-switch" id="start-switch" role="group" aria-label="Lap start">
+      <button type="button" id="start-flying" class="seg on">Flying start</button>
+      <button type="button" id="start-rest" class="seg">Start from rest</button>
+    </div>
     <label>Save name <input id="rank-name" type="text" style="width:220px" placeholder="after calculate"/></label>
     <button type="button" id="save-rank">Save to ranking</button>
     <span class="links">
@@ -151,6 +159,19 @@ function restoreLastRun() {
       if (packed.name && !$('rank-name').value) $('rank-name').value = packed.name;
     }
   } catch (err) {}
+}
+
+let startModeTouched = false;
+let startFromRest = false;
+function fromRestOn() {
+  return !!startFromRest;
+}
+function setStartMode(fromRest, fromUser) {
+  startFromRest = !!fromRest;
+  if (fromUser) startModeTouched = true;
+  $('start-flying').classList.toggle('on', !startFromRest);
+  $('start-rest').classList.toggle('on', startFromRest);
+  $('start-switch').setAttribute('data-mode', startFromRest ? 'rest' : 'flying');
 }
 
 function setStatus(msg, cls) {
@@ -246,6 +267,7 @@ async function saveToRanking(overwrite) {
     channels: lastSummary.channels,
     v_cap: parseFloat($('vcap').value) || 40,
     synthetic: $('synthetic').checked,
+    from_rest: fromRestOn(),
     overwrite: !!overwrite,
   };
   if (!useBrowserQss()) {
@@ -395,7 +417,8 @@ async function processKind(kind, inputId) {
   setStatus('Processing ' + kind + ' file…');
   const data = await previewFile(kind, inputId);
   applyPreview(kind, data, $(inputId).files[0].name);
-  setStatus('Processed ' + kind + '. Click Process uploads & calculate for new HUD / MATLAB.', 'ok');
+  const mode = startFromRest ? 'Start from rest' : 'Flying start';
+  setStatus('Processed ' + kind + '. ' + mode + ' is selected — click Process uploads & calculate.', 'ok');
 }
 
 function stampLinks() {
@@ -412,6 +435,7 @@ async function loadDefaults() {
   renderMap(defaults.map);
   $('vcap').value = defaults.settings.v_cap;
   $('synthetic').checked = defaults.settings.synthetic;
+  if (!startModeTouched) setStartMode(!!defaults.settings.from_rest);
   $('car-name').textContent = 'Using ' + (defaults.car.name || 'database default');
   $('map-name').textContent = 'Using ' + ((defaults.map.info && defaults.map.info.name) || 'database default');
   if (defaults.driver && defaults.driver.present) {
@@ -442,12 +466,26 @@ $('car-search').addEventListener('input', () => {
     tr.style.display = (!q || blob.includes(q)) ? '' : 'none';
   }
 });
-$('reset').onclick = () => { $('car-file').value=''; $('map-file').value=''; $('driver-file').value=''; loadDefaults(); setStatus('Defaults restored'); };
+$('reset').onclick = () => {
+  startModeTouched = false;
+  $('car-file').value=''; $('map-file').value=''; $('driver-file').value='';
+  loadDefaults();
+  setStatus('Defaults restored');
+};
+$('start-flying').onclick = () => {
+  setStartMode(false, true);
+  setStatus('Flying start selected — click Process uploads & calculate');
+};
+$('start-rest').onclick = () => {
+  setStartMode(true, true);
+  setStatus('Start from rest selected — click Process uploads & calculate');
+};
 
 $('run').onclick = async () => {
   const btn = $('run');
+  const fromRest = !!startFromRest;
   btn.disabled = true;
-  setStatus('Calculating QSS lap…');
+  setStatus((fromRest ? 'Start from rest' : 'Flying start') + ' — calculating QSS lap…');
   try {
     if ($('map-file').files[0] && !$('map-name').textContent.startsWith('Processed')) {
       await processKind('map', 'map-file');
@@ -463,11 +501,13 @@ $('run').onclick = async () => {
     fd.append('map_info', JSON.stringify(collectMapInfo()));
     fd.append('shape', JSON.stringify(collectShape()));
     fd.append('v_cap', $('vcap').value);
-    fd.append('synthetic', $('synthetic').checked ? 'true' : 'false');
+    fd.append('synthetic', $('synthetic').checked ? '1' : '0');
+    fd.append('from_rest', fromRest ? '1' : '0');
+    fd.append('run_opts', JSON.stringify({ from_rest: fromRest, synthetic: $('synthetic').checked }));
     let data;
     if (useBrowserQss()) {
       const py = await ensurePy();
-      setStatus('Calculating QSS lap…');
+      setStatus((fromRest ? 'Start from rest' : 'Flying start') + ' — calculating QSS lap…');
       const write = async (name, file) => {
         if (!file) return;
         py.FS.writeFile(name, new Uint8Array(await file.arrayBuffer()));
@@ -479,7 +519,8 @@ $('run').onclick = async () => {
       py.globals.set('js_map_info', fd.get('map_info'));
       py.globals.set('js_shape', fd.get('shape'));
       py.globals.set('js_vcap', $('vcap').value);
-      py.globals.set('js_synth', $('synthetic').checked ? 'true' : 'false');
+      py.globals.set('js_synth', $('synthetic').checked ? '1' : '0');
+      py.globals.set('js_from_rest', fromRest ? '1' : '0');
       py.globals.set('js_has_car', $('car-file').files[0] ? '1' : '');
       py.globals.set('js_has_map', $('map-file').files[0] ? '1' : '');
       py.globals.set('js_has_driver', $('driver-file').files[0] ? '1' : '');
@@ -494,7 +535,8 @@ summary = run_studio(
     map_info=js_map_info,
     shape=js_shape,
     v_cap=float(js_vcap),
-    synthetic=str(js_synth).lower() not in ('0','false','no',''),
+    synthetic=str(js_synth).strip() in ('1','true','yes','on'),
+    from_rest=str(js_from_rest).strip() in ('1','true','yes','on'),
 )
 hud = summary.pop('hud_html')
 results = summary.pop('results_html')
@@ -514,9 +556,10 @@ json.dumps({'summary': summary, 'hud': hud, 'results': results})
     $('rank-name').value = `${data.vehicle} · ${data.track} · ${Number(data.lap_time).toFixed(3)} s`;
     rememberLastRun();
     const sp = data.speed_kmh || {};
+    const start = data.from_rest ? 'from rest' : 'flying';
     setStatus(
       `${data.vehicle} · ${data.track} · ${data.lap_time.toFixed(3)} s   ` +
-      `${sp.min.toFixed(1)} / ${sp.mean.toFixed(1)} / ${sp.max.toFixed(1)} km/h  — name it and Save to ranking`,
+      `${sp.min.toFixed(1)} / ${sp.mean.toFixed(1)} / ${sp.max.toFixed(1)} km/h  (${start})  — name it and Save to ranking`,
       'ok'
     );
     $('driver-last').textContent = `Wrote driver.xlsx (${data.n} samples). HUD and MATLAB updated.`;
@@ -548,6 +591,7 @@ async function maybeLoadSetup() {
   defaults.car.fields = (e.car && e.car.fields) || [];
   renderCar(defaults.car.fields);
   $('rank-name').value = e.name || '';
+  setStartMode(!!e.from_rest, true);
   setStatus('Loaded setup ' + e.name + ' from ranking. Calculate to refresh HUD / MATLAB.', 'ok');
 }
 

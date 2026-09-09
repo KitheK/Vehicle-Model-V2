@@ -150,7 +150,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const D = __PAYLOAD__;
 const N = D.time.length;
-let playing = true, t0 = performance.now(), tSim = 0;
+let playing = !D.fromRest, t0 = performance.now(), tSim = 0;
 const CAM = D.camHeight || 80;
 let CAR_CX = 0.26;  /* mid-wheelbase in the 3D car frame; updated if a GLB loads */
 let CAR_HALF_W = 1.95;
@@ -1001,6 +1001,7 @@ function frame(now){
 document.getElementById('title').textContent = D.vehicle + '  ·  ' + D.track;
 document.getElementById('title').title = D.notes || '';
 document.getElementById('lap').textContent = D.lapTime.toFixed(3) + ' s';
+document.getElementById('play').textContent = playing ? 'Pause' : 'Play';
 document.getElementById('play').onclick = () => {
   playing = !playing;
   document.getElementById('play').textContent = playing ? 'Pause' : 'Play';

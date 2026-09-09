@@ -155,6 +155,69 @@ class TestQssStudio(unittest.TestCase):
             self.assertAlmostEqual(data["length_m"], 114.0, places=6)
             self.assertEqual(len(data["shape"]), 6)
 
+    def test_studio_has_start_from_rest_button(self) -> None:
+        text = (_HERE / "qss_studio.html").read_text(encoding="utf-8")
+        self.assertIn("Start from rest", text)
+        self.assertIn("Flying start", text)
+        self.assertIn("start-switch", text)
+        self.assertIn("startFromRest", text)
+        self.assertIn("fromRest ? '1' : '0'", text)
+        self.assertIn("button.primary { background:var(--orange)", text)
+        self.assertIn(".start-switch .seg.on", text)
+
+    def test_flag_reads_from_rest_one_and_run_opts(self) -> None:
+        from fsae.qss_server import _flag
+
+        self.assertTrue(_flag({"from_rest": "1"}, "from_rest"))
+        self.assertFalse(_flag({"from_rest": "0"}, "from_rest"))
+        self.assertTrue(_flag({"run_opts": '{"from_rest": true}'}, "from_rest"))
+        self.assertFalse(_flag({}, "from_rest"))
+
+    def test_qss_lap_and_job_accept_from_rest(self) -> None:
+        import inspect
+
+        from fsae.qss_job import run_qss_job
+        from fsae.qss_lap import qss_lap
+
+        self.assertIn("from_rest", inspect.signature(qss_lap).parameters)
+        self.assertIn("from_rest", inspect.signature(run_qss_job).parameters)
+        src = (_HERE / "qss_job.py").read_text(encoding="utf-8")
+        self.assertIn("qss_lap(mesh, table, v_cap=v_cap, from_rest=from_rest)", src)
+
+    def test_run_studio_from_rest_lowers_min_speed(self) -> None:
+        from fsae.qss_browser import run_studio
+
+        with tempfile.TemporaryDirectory() as tmp:
+            track = Path(tmp) / "accel.xlsx"
+            car = Path(tmp) / "car.xlsx"
+            write_map_xlsx(
+                track,
+                {"name": "Accel", "country": "CA", "type": "Temporary", "configuration": "Open"},
+                (("Straight", 400.0, 0.0),),
+            )
+            write_ubco_2026_xlsx(car)
+            flying = run_studio(
+                car_path=car,
+                map_path=track,
+                synthetic=True,
+                v_cap=40.0,
+                from_rest=False,
+                output=Path(tmp) / "fly",
+            )
+            standing = run_studio(
+                car_path=car,
+                map_path=track,
+                synthetic=True,
+                v_cap=40.0,
+                from_rest=True,
+                output=Path(tmp) / "stand",
+            )
+            self.assertTrue(standing["from_rest"])
+            self.assertFalse(flying["from_rest"])
+            self.assertLess(standing["speed_kmh"]["min"], 4.0)
+            self.assertGreater(flying["speed_kmh"]["min"], standing["speed_kmh"]["min"] + 10.0)
+            self.assertIn('"fromRest":true', standing["hud_html"])
+
 
 if __name__ == "__main__":
     unittest.main()

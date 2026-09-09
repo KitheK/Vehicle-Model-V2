@@ -8,6 +8,8 @@ speeds, then does the classic three-pass QSS construction:
 3. Backward braking limited by ax_min(v, ay)
 
 The racing line is the OpenTRACK Shape polyline (same as MATLAB OpenLAP).
+``from_rest=True`` starts the forward acceleration pass at 0.5 m/s (standing
+start) instead of the flying ``v_max`` at s=0.
 """
 
 from __future__ import annotations
@@ -105,21 +107,28 @@ def _v_corner(kappa: float, table: GGTable, v_cap: float) -> float:
     return max(1.0, min(v, v_cap))
 
 
-def qss_lap(mesh: OpenTrackMesh, table: GGTable, v_cap: float = 40.0) -> QSSResult:
+def qss_lap(
+    mesh: OpenTrackMesh,
+    table: GGTable,
+    v_cap: float = 40.0,
+    from_rest: bool = False,
+) -> QSSResult:
     n = len(mesh.s)
     g = 9.81
     v_max = [_v_corner(k, table, v_cap) for k in mesh.kappa]
+    start_v = 0.5 if from_rest else v_max[0]
 
     def step(v: float, kappa: float, ds: float, which: str) -> float:
         ay_g = abs(v * v * kappa) / g
         ax_g = _interp_speed(table, v, which, ay_g)
         return v * v + 2.0 * ax_g * g * ds
 
-    v_acc = [v_max[0]]
+    v_acc = [start_v]
     for i in range(n - 1):
         ds = mesh.s[i + 1] - mesh.s[i]
         v2 = step(v_acc[-1], mesh.kappa[i], ds, "max")
-        v_acc.append(min(v_max[i + 1], math.sqrt(max(v2, 1.0))))
+        floor = 0.25 if from_rest else 1.0
+        v_acc.append(min(v_max[i + 1], math.sqrt(max(v2, floor))))
 
     v_brk = [0.0] * n
     v_brk[-1] = v_max[-1]

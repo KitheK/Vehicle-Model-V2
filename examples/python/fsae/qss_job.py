@@ -99,6 +99,7 @@ def run_qss_job(
     cam_height: float = 80.0,
     plots: bool = False,
     hud_index: Optional[int] = None,
+    from_rest: bool = False,
 ) -> Dict[str, Any]:
     """Mesh the map, reconstruct driver/6DOF channels, write HUD + MATLAB pages."""
     mesh = mesh_opentrack(track_xlsx)
@@ -121,7 +122,7 @@ def run_qss_job(
             table = _load_gg(Path(xml), gg_speed, gg_points)
             source = f"fastest-lap gg_diagram at {gg_speed:.1f} m/s"
 
-    result = qss_lap(mesh, table, v_cap=v_cap)
+    result = qss_lap(mesh, table, v_cap=v_cap, from_rest=from_rest)
     view = reconstruct_lap(
         result,
         mesh,
@@ -130,7 +131,9 @@ def run_qss_job(
         vehicle_name=str(params.get("name") or "FSAE"),
         track_name=mesh.info.name,
     )
-    view.notes = source + ". " + view.notes
+    view.from_rest = bool(from_rest)
+    prefix = "Standing start (~0.5 m/s). " if from_rest else ""
+    view.notes = prefix + source + ". " + view.notes
 
     output.mkdir(parents=True, exist_ok=True)
     if plots:
@@ -170,6 +173,7 @@ def run_qss_job(
             "max": max(v_kmh) if v_kmh else 0.0,
         },
         "peak_ay_g": max(abs(a) for a in view.ay) if view.ay else 0.0,
+        "from_rest": bool(from_rest),
         "channels": channels_from_view(view),
         "files": {
             "hud": "hud.html",
@@ -212,5 +216,5 @@ def defaults_payload(output: Optional[Path] = None) -> Dict[str, Any]:
                 "path": str(DEFAULT_CAR), "fields": car_fields},
         "map": {"path": str(DEFAULT_MAP), "info": map_info, "shape": shape, "length_m": length},
         "driver": driver,
-        "settings": {"v_cap": 40.0, "synthetic": True, "cam_height": 80.0},
+        "settings": {"v_cap": 40.0, "synthetic": True, "cam_height": 80.0, "from_rest": False},
     }

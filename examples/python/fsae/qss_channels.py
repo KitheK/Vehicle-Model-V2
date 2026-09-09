@@ -64,6 +64,7 @@ class LapView:
     env_ax_min: List[float] = field(default_factory=list)
     env_speed: float = 0.0
     notes: str = ""
+    from_rest: bool = False
 
 
 def _as_float(params: Dict[str, Any], *keys: str, default: float) -> float:
@@ -256,6 +257,7 @@ def reconstruct_lap(
             "Throttle/brake from QSS G-G leftover; steer/β from OpenVEHICLE bicycle model; "
             "tire P/E from lumped load transfer (not 6DOF contact patches)."
         ),
+        from_rest=False,
     )
 
 

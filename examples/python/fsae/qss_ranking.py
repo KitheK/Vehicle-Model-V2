@@ -309,6 +309,7 @@ def build_record(
         "peak_ay_g": float(summary.get("peak_ay_g") or 0.0),
         "v_cap": float(v_cap),
         "synthetic": bool(synthetic),
+        "from_rest": bool(summary.get("from_rest")),
         "car": {
             "mass": field_float(fields, "Total Mass"),
             "maximum_power": field_float(fields, "Maximum Power"),

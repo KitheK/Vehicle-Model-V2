@@ -32,6 +32,7 @@ def main() -> int:
     parser.add_argument("--gg-points", type=int, default=10)
     parser.add_argument("--v-cap", type=float, default=40.0)
     parser.add_argument("--synthetic", action="store_true", help="Skip fastest-lap gg_diagram (tests / no lib)")
+    parser.add_argument("--from-rest", action="store_true", help="Standing start at ~0.5 m/s instead of a flying lap")
     parser.add_argument("--hud-index", type=int, default=None, help="Mesh index for the static HUD PNG")
     parser.add_argument("--cam-height", type=float, default=80.0, help="Follow-cam vertical field [m]")
     args = parser.parse_args()
@@ -46,6 +47,7 @@ def main() -> int:
         vehicle_xml=args.vehicle_xml,
         synthetic=args.synthetic or not args.vehicle_xml.is_file(),
         v_cap=args.v_cap,
+        from_rest=args.from_rest,
         gg_speed=args.speed,
         gg_points=args.gg_points,
         cam_height=args.cam_height,

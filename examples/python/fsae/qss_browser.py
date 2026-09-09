@@ -32,6 +32,7 @@ def run_studio(
     v_cap: float = 40.0,
     synthetic: bool = True,
     cam_height: float = 80.0,
+    from_rest: bool = False,
     output: Optional[str | Path] = None,
 ) -> Dict[str, Any]:
     tmp = Path(tempfile.mkdtemp(prefix="qss_studio_"))
@@ -89,6 +90,7 @@ def run_studio(
             synthetic=synthetic,
             v_cap=float(v_cap),
             cam_height=float(cam_height),
+            from_rest=bool(from_rest),
             plots=False,
         )
         summary["hud_html"] = (out / "hud.html").read_text(encoding="utf-8")
