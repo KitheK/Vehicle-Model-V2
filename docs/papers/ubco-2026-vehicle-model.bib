@@ -1,0 +1,98 @@
+@misc{jones-linkedin,
+  author       = {Jones, Brenden},
+  title        = {Vehicle Dynamics and Software Lead, {OK} Motorsports ({UBCO} Formula {SAE})},
+  howpublished = {\url{https://www.linkedin.com/in/brenden-jones-4a84b3331}},
+  year         = {2023},
+  note         = {Vehicle Dynamics and Software Lead (2023--present). Technical ownership of the MATLAB OpenLAP / OpenVEHICLE 2DOF workflow, vehicle and track databases, and lap-time / load analysis tools used by OK Motorsports. Accessed 2026-08-19}
+}
+
+@misc{okmotorsports,
+  author       = {{UBCO Motorsports}},
+  title        = {{OK} Motorsports --- University of {British Columbia} {Okanagan} Formula {SAE}},
+  howpublished = {\url{https://www.okanaganmotorsports.com/}},
+  year         = {2026},
+  note         = {Club site. Mk~4 key data used as a historical IC reference for mass, aero area, and wheelbase scale}
+}
+
+@misc{lopesbandy-linkedin,
+  author       = {Lopes-Bandy, Joao},
+  title        = {Vehicle Dynamics lead, {OK} Motorsports: {OpenLAP} time simulation in {MATLAB}},
+  howpublished = {\url{https://www.linkedin.com/in/joaolopesbandy}},
+  year         = {2022},
+  note         = {Documents the subteam's prior use of OpenLAP for lap-time prediction and kinematic loads}
+}
+
+@misc{manzanero-fastestlap,
+  author       = {Manzanero, Juan},
+  title        = {fastest-lap: a vehicle dynamics library with {G-G} diagrams and optimal lap time},
+  howpublished = {\url{https://github.com/juanmanzanero/fastest-lap}},
+  year         = {2021},
+  note         = {{MIT} License. Newton--Euler 6DOF chassis, Pacejka tires, kart-6dof and f1-3dof types. Vehicle-Model-V2 derives its C++ engine from this library; see repository \texttt{NOTICE.md} and \texttt{LICENSE}}
+}
+
+@book{pacejka,
+  author    = {Pacejka, Hans B.},
+  title     = {Tire and Vehicle Dynamics},
+  edition   = {3},
+  publisher = {Butterworth-Heinemann},
+  year      = {2012}
+}
+
+@book{milliken,
+  author    = {Milliken, William F. and Milliken, Douglas L.},
+  title     = {Race Car Vehicle Dynamics},
+  publisher = {SAE International},
+  year      = {1995}
+}
+
+@book{gillespie,
+  author    = {Gillespie, Thomas D.},
+  title     = {Fundamentals of Vehicle Dynamics},
+  publisher = {SAE International},
+  year      = {1992}
+}
+
+@book{katz,
+  author    = {Katz, Joseph},
+  title     = {Race Car Aerodynamics: Designing for Speed},
+  publisher = {Bentley Publishers},
+  year      = {1995}
+}
+
+@techreport{fsae-rules,
+  author      = {{SAE International}},
+  title       = {Formula {SAE} Rules --- Electric Vehicle Power Limit},
+  year        = {2024},
+  institution = {SAE International},
+  note        = {Maximum power delivered by the tractive system is limited to \SI{80}{\kilo\watt}. The model enforces this as a torque--speed envelope, not as a battery SOC constraint}
+}
+
+@misc{openlap,
+  author       = {{OpenLAP / OpenVEHICLE / OpenTRACK}},
+  title        = {Open-source Formula Student lap-time simulator},
+  howpublished = {\url{https://github.com/brownfsae/OpenLAP-Lap-Time-Simulator}},
+  year         = {2018},
+  note         = {MATLAB toolchain used by the UBCO Vehicle Dynamics subteam. Vehicle-Model-V2 retains the OpenVEHICLE and OpenTRACK workbook layouts so MATLAB and C++ share one parameter source}
+}
+
+@book{genta,
+  author    = {Genta, Giancarlo},
+  title     = {Motor Vehicle Dynamics: Modeling and Simulation},
+  publisher = {World Scientific},
+  year      = {1997}
+}
+
+@misc{ttc,
+  author       = {{Calspan Tire Testing Consortium (TTC)}},
+  title        = {Formula {SAE} tire test data},
+  howpublished = {Hoosier / FSAE TTC campaigns},
+  year         = {2019},
+  note         = {Pacejka shape coefficients in the current XML are placeholders until a Hoosier TTC fit is substituted. Friction coefficients $\mu_x$, $\mu_y$ in the OpenVEHICLE book are the interim grip model}
+}
+
+@misc{vehicle-model-v2,
+  author       = {{UBCO Motorsports Vehicle Dynamics / Software}},
+  title        = {Vehicle-Model-V2: \texttt{fsae-6dof} and {QSS} studio},
+  howpublished = {\url{https://github.com/KitheK/Vehicle-Model-V2}},
+  year         = {2026}
+}

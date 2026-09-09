@@ -60,7 +60,12 @@ Each saved entry is JSON:
 **Ranking detail** (click a ranked car)
 
 - Header: setup name, map, lap time, Back to board, Ghost, Load, Download .xlsx.
-- Left: read-only **car information** (same Category / Description / Value / Unit table as Studio).
+- Left: read-only **car information**. At the top, a short **Results** metrics
+  table from the saved lap: max speed (km/h), time to max speed (s), distance
+  to max speed (m), 0–60 km/h (s), 0–100 km/h (s). Times are from the first
+  sample of the stored trace; 0–60 / 0–100 show as — if the lap already starts
+  above that speed or never reaches it. Below: Category / Description / Value /
+  Unit car fields (same as Studio).
 - Right: **MATLAB visualization** of that save’s lap (Speed, curvature, ax/ay/gsum, driver inputs, attitude, GGV, track map) using downsampled channels stored on the ranking record (`matlab`). Play/pause like the MATLAB tab. If channels are missing, show “No lap traces for this save.”
 
 **HUD** (`qss_hud.html`)

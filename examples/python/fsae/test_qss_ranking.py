@@ -17,6 +17,7 @@ from fsae.qss_ranking import (  # noqa: E402
     downsample_aligned,
     export_car_xlsx,
     filter_by_map,
+    lap_metrics,
     load_entries,
     save_entry,
     sort_entries,
@@ -111,6 +112,38 @@ class TestQssRanking(unittest.TestCase):
             )
             self.assertAlmostEqual(load_entries(path)[0]["car"]["mass"], 275.0)
 
+    def test_lap_metrics_from_standing_start(self) -> None:
+        # 0 → 40 m/s (144 km/h) over 8 s, 160 m. Cross 60 km/h and 100 km/h.
+        n = 9
+        t = [i * 1.0 for i in range(n)]
+        v = [i * 5.0 for i in range(n)]  # m/s
+        s = [i * 20.0 for i in range(n)]
+        m = lap_metrics(v, t, s)
+        self.assertAlmostEqual(m["max_speed_kmh"], 144.0)
+        self.assertAlmostEqual(m["time_to_max_s"], 8.0)
+        self.assertAlmostEqual(m["distance_to_max_m"], 160.0)
+        # 60 km/h = 16.667 m/s between 15 and 20 m/s (t=3 and t=4)
+        self.assertAlmostEqual(m["time_0_60_s"], 3.0 + (16.6666667 - 15.0) / 5.0, places=4)
+        # 100 km/h = 27.778 m/s between 25 and 30 m/s (t=5 and t=6)
+        self.assertAlmostEqual(m["time_0_100_s"], 5.0 + (27.7777778 - 25.0) / 5.0, places=4)
+
+    def test_lap_metrics_na_when_start_already_fast(self) -> None:
+        v = [30.0, 32.0, 35.0]
+        t = [0.0, 1.0, 2.0]
+        s = [0.0, 31.0, 64.0]
+        m = lap_metrics(v, t, s)
+        self.assertAlmostEqual(m["max_speed_kmh"], 126.0)
+        self.assertIsNone(m["time_0_60_s"])
+        self.assertIsNone(m["time_0_100_s"])
+
+    def test_build_record_includes_metrics(self) -> None:
+        rec = build_record(name="metrics", summary=_summary(120.0), car_fields=_fields(280))
+        m = rec["metrics"]
+        self.assertIn("max_speed_kmh", m)
+        self.assertGreater(m["max_speed_kmh"], 0.0)
+        self.assertIn("time_to_max_s", m)
+        self.assertIn("distance_to_max_m", m)
+
     def test_empty_name_rejected(self) -> None:
         with self.assertRaises(ValueError):
             build_record(name="  ", summary=_summary(100.0), car_fields=_fields(290))
@@ -139,6 +172,9 @@ class TestQssRanking(unittest.TestCase):
         ranking = (_HERE / "qss_ranking.html").read_text(encoding="utf-8")
         self.assertIn("Download .xlsx", ranking)
         self.assertIn("c-speed", ranking)
+        self.assertIn("metrics-table", ranking)
+        self.assertIn("0–60 km/h", ranking)
+        self.assertIn("0–100 km/h", ranking)
         studio = (_HERE / "qss_studio.html").read_text(encoding="utf-8")
         self.assertIn("Save to ranking", studio)
         self.assertIn("qss-last-run", studio)

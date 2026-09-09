@@ -604,8 +604,11 @@ function loadCarModel(){
 }
 
 let webglLive = false;
-let trackCar = buildUbcoCar();
-let cardCar = buildUbcoCar();
+function emptyCar(){
+  return {group: new THREE.Group(), front: [], rear: [], wheels: {}};
+}
+let trackCar = emptyCar();
+let cardCar = emptyCar();
 let trackScene, trackRenderer, trackCam, cardScene, cardRenderer, cardCam;
 const trackCarCanvas = document.createElement('canvas');
 trackCarCanvas.width = 384; trackCarCanvas.height = 256;
@@ -1046,7 +1049,17 @@ if (webglLive){
     const n = template.group.userData.norm || {};
     console.info('GLB car ready', {scale:n.scale, wheelbaseNative:n.wheelbaseNative, wheels:n.wheelNames, trianglesBothViews: tris});
   }).catch(err => {
-    console.warn('GLB car load failed; keeping procedural car', err && err.message ? err.message : err);
+    console.warn('GLB car load failed; using procedural car only as fallback', err && err.message ? err.message : err);
+    try {
+      trackScene.remove(trackCar.group);
+      cardScene.remove(cardCar.group);
+    } catch (e) {}
+    trackCar = buildUbcoCar();
+    cardCar = buildUbcoCar();
+    trackScene.add(trackCar.group);
+    cardScene.add(cardCar.group);
+    fitStampFrustum(trackCar.group);
+    fitCardFrustum(cardCar.group);
   });
 }
 </script>

@@ -77,6 +77,61 @@ def downsample_aligned(arrays: Dict[str, Sequence[float]], max_points: int = MAX
     return {k: [float(v[i]) for i in idx] for k, v in usable.items()}
 
 
+def lap_metrics(
+    speed_mps: Sequence[float],
+    time_s: Sequence[float],
+    distance_m: Sequence[float],
+) -> Dict[str, Optional[float]]:
+    """Peak speed and standing-start crossings from aligned lap channels.
+
+    Speeds are SI m/s. 0–60 and 0–100 km/h times are None when the trace
+    already starts at or above the target, or never reaches it.
+    """
+    n = min(len(speed_mps), len(time_s), len(distance_m))
+    empty: Dict[str, Optional[float]] = {
+        "max_speed_kmh": None,
+        "time_to_max_s": None,
+        "distance_to_max_m": None,
+        "time_0_60_s": None,
+        "time_0_100_s": None,
+    }
+    if n < 1:
+        return empty
+    v = [float(x) for x in speed_mps[:n]]
+    t = [float(x) for x in time_s[:n]]
+    s = [float(x) for x in distance_m[:n]]
+    vmax = max(v)
+    idx = v.index(vmax)
+    t0, s0 = t[0], s[0]
+    out: Dict[str, Optional[float]] = {
+        "max_speed_kmh": vmax * 3.6,
+        "time_to_max_s": t[idx] - t0,
+        "distance_to_max_m": s[idx] - s0,
+        "time_0_60_s": _first_crossing_time(v, t, 60.0 / 3.6, t0),
+        "time_0_100_s": _first_crossing_time(v, t, 100.0 / 3.6, t0),
+    }
+    return out
+
+
+def _first_crossing_time(
+    speed_mps: Sequence[float],
+    time_s: Sequence[float],
+    target_mps: float,
+    t0: float,
+) -> Optional[float]:
+    if speed_mps[0] >= target_mps:
+        return None
+    for i in range(1, len(speed_mps)):
+        lo, hi = speed_mps[i - 1], speed_mps[i]
+        if hi < target_mps:
+            continue
+        span = hi - lo
+        u = 0.0 if abs(span) < 1.0e-12 else (target_mps - lo) / span
+        u = max(0.0, min(1.0, u))
+        return (time_s[i - 1] + u * (time_s[i] - time_s[i - 1])) - t0
+    return None
+
+
 def channels_from_view(view: Any, max_points: int = MAX_POINTS) -> Dict[str, Any]:
     """Compact MATLAB/HUD channels from a LapView."""
     lap = downsample_aligned(
@@ -261,6 +316,7 @@ def build_record(
         },
         "ghost": ghost_from_channels(matlab),
         "matlab": matlab,
+        "metrics": lap_metrics(matlab.get("v") or [], matlab.get("time") or [], matlab.get("s") or []),
     }
     if not entry["speed_kmh"] and matlab.get("v"):
         kmh = [float(v) * 3.6 for v in matlab["v"]]

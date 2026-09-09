@@ -1,0 +1,1129 @@
+\documentclass[11pt,letterpaper]{article}
+
+% ----------------------------------------------------------------------
+% Layout
+% ----------------------------------------------------------------------
+\usepackage[margin=1in]{geometry}
+\usepackage{setspace}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{caption}
+
+% ----------------------------------------------------------------------
+% Math and units
+% ----------------------------------------------------------------------
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{siunitx}
+
+% ----------------------------------------------------------------------
+% Tables
+% ----------------------------------------------------------------------
+\usepackage{booktabs}
+
+% ----------------------------------------------------------------------
+% Code listings
+% ----------------------------------------------------------------------
+\usepackage{listings}
+\usepackage{xcolor}
+
+% ----------------------------------------------------------------------
+% Links and bibliography
+% ----------------------------------------------------------------------
+\usepackage{hyperref}
+\usepackage[numbers,sort&compress]{natbib}
+
+% ----------------------------------------------------------------------
+% Package configuration
+% ----------------------------------------------------------------------
+\sisetup{per-mode=symbol,detect-all}
+\DeclareSIUnit\rpm{rpm}
+
+\hypersetup{
+  colorlinks = true,
+  linkcolor  = black,
+  citecolor  = blue!50!black,
+  urlcolor   = blue!50!black,
+}
+
+\lstdefinestyle{code}{
+  basicstyle       = \ttfamily\footnotesize,
+  breaklines       = true,
+  columns          = fullflexible,
+  frame            = single,
+  rulecolor        = \color{black!20},
+  backgroundcolor  = \color{black!3},
+  showstringspaces = false,
+  commentstyle     = \itshape\color{black!55},
+  keywordstyle     = \bfseries,
+  morecomment      = [l]{//},
+  morecomment      = [s]{/*}{*/},
+}
+\lstset{style=code}
+
+% ----------------------------------------------------------------------
+% Dual audience labels
+% ----------------------------------------------------------------------
+\newcommand{\eng}[1]{\paragraph{Physics.} #1}
+\newcommand{\codepath}[1]{\paragraph{Software.} #1}
+
+% ----------------------------------------------------------------------
+% Title
+% ----------------------------------------------------------------------
+\title{%
+  The UBCO 2026 EV Vehicle Model:\\
+  Six-Degree-of-Freedom Dynamics, Quasi-Steady Laps,\\
+  and Parameter Provenance%
+}
+\author{%
+  UBCO Motorsports --- Vehicle Dynamics and Software\\
+  Technical report: \texttt{Vehicle-Model-V2} \quad vehicle type \texttt{fsae-6dof}%
+}
+\date{August 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report specifies the physics and the software of the 2026 electric
+Formula~SAE vehicle model used by UBCO Motorsports (OK Motorsports). It
+is written for two audiences. \textbf{Vehicle dynamics, aero, powertrain,
+and tire engineers} receive the Newton--Euler six-degree-of-freedom
+(6DOF) chassis, tire forces, electric torque--speed envelope, aerodynamic
+maps, G-G diagrams, and the three-pass quasi-steady-state (QSS) lap, with
+SI units justified at each step. \textbf{Software engineers} receive the
+matching objects in \texttt{fsae-6dof}, the OpenVEHICLE workbook, and the
+Python QSS and heads-up display (HUD) stack, including a strict
+separation between ordinary-differential-equation (ODE) states and
+reconstructed dashboard channels.
+
+The C++ plant is a Formula~SAE specialisation of Manzanero's
+\texttt{fastest-lap} Newton--Euler engine~\cite{manzanero-fastestlap}.
+The parameter books and the QSS racing-line method continue the club
+Vehicle Dynamics (VD) MATLAB OpenLAP / OpenVEHICLE workflow developed
+under Brenden Jones~\cite{jones-linkedin,openlap,lopesbandy-linkedin}.
+If a number is edited in Studio, this document states which equation it
+enters and why.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ========================================================================
+\section{How to read this document}
+% ========================================================================
+
+\paragraph{Physics} paragraphs state the model, assumptions, and units.
+\paragraph{Software} paragraphs name the repository files. They are
+pointers into \texttt{Vehicle-Model-V2}, not a second implementation.
+
+New software members: start with Section~\ref{sec:lineage},
+Section~\ref{sec:two-models}, Section~\ref{sec:code}, and
+Appendix~\ref{app:files}. Dynamics leads: treat the numbered equations
+as the specification and read Section~\ref{sec:limits} before using
+outputs in a design review.
+
+Two pipelines share one car file:
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Transient 6DOF} (C++): Newton--Euler sprung body, four
+        Pacejka tires, electric-vehicle (EV) envelope. Used for
+        numerical G-G diagrams (\texttt{gg\_diagram}) and, later,
+        optimal lap time.
+  \item \textbf{QSS lap and HUD} (Python): OpenTRACK mesh, a G-G table,
+        three kinematic passes, then bicycle-model post-processing for
+        steer, sideslip, and lumped tire loads. This is the Studio path
+        on Cloudflare (Pyodide) and locally.
+\end{enumerate}
+
+They are not the same fidelity. Treating a Studio lap-time delta as a
+6DOF G-G delta is a modelling error. Section~\ref{sec:two-models}
+states the distinction formally.
+
+% ========================================================================
+\section{Previous 2DOF MATLAB model and OpenLAP}
+\label{sec:lineage}
+% ========================================================================
+
+UBCO Motorsports is the University of British Columbia Okanagan
+Formula~SAE team~\cite{okmotorsports}. Vehicle Dynamics owns how the car
+uses the road: mass distribution, springs, anti-roll bars, kinematics,
+tires, aerodynamic balance, and the simulations that convert those
+numbers into predicted skidpad, acceleration, and endurance performance.
+
+\subsection{Technical work under Brenden Jones}
+\label{sec:jones}
+
+From 2023, Brenden Jones has been Vehicle Dynamics and Software Lead
+for OK Motorsports~\cite{jones-linkedin}. The technical product of that
+role, continued from earlier OpenLAP use on the subteam
+~\cite{lopesbandy-linkedin}, is a MATLAB toolchain that:
+
+\begin{itemize}[leftmargin=1.6em]
+  \item stored one official vehicle book (OpenVEHICLE) and one official
+        track book (OpenTRACK);
+  \item built a speed-dependent G-G (GGV) envelope from mass, power,
+        grip, and aero;
+  \item ran a quasi-steady lap along the racing line to predict lap
+        time and longitudinal/lateral acceleration histories;
+  \item reconstructed steer, body sideslip, and kinematic tire loads
+        with a planar two-degree-of-freedom (2DOF) bicycle model;
+  \item kept a separate 2DOF quarter-car for ride (sprung and unsprung
+        vertical motion), which is still the ride tool.
+\end{itemize}
+
+Vehicle-Model-V2 does not replace that parameter ownership. It reads
+the same workbooks and keeps QSS as the operational lap method, while
+the plant used for G-G (and later optimal lap time) is upgraded from
+planar 2DOF to sprung 6DOF.
+
+\subsection{MATLAB architecture: OpenVEHICLE, OpenTRACK, OpenLAP}
+\label{sec:matlab-arch}
+
+OpenLAP is a three-program MATLAB stack~\cite{openlap}:
+
+\begin{center}
+\begin{tabular}{@{}llp{7.4cm}@{}}
+\toprule
+Program & Role & Inputs / outputs \\
+\midrule
+OpenVEHICLE & Car database & Sheets \texttt{Info}, \texttt{Torque Curve},
+  \texttt{FastestLap}. Columns
+  \texttt{Category $|$ Description $|$ Value $|$ Unit $|$ Comment}. \\
+OpenTRACK & Track database & \texttt{Info} plus \texttt{Shape}:
+  segment type (\texttt{Straight} / \texttt{Left} / \texttt{Right}),
+  length in metres, corner radius in metres. The polyline \emph{is}
+  the racing line; there is no corridor width. \\
+OpenLAP & Lap solver & GGV table, three-pass $v(s)$, then channel
+  reconstruction (throttle, brake, steer, $\beta$, axle loads). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\codepath{\texttt{examples/python/fsae/openvehicle\_xlsx.py},
+\texttt{opentrack\_xlsx.py}, \texttt{xlsx\_kit.py}. Studio patches
+\texttt{Info} / \texttt{FastestLap} by Description, then writes
+\texttt{ubco-2026-ev.xml} for C++.}
+
+\subsection{Planar 2DOF bicycle (yaw and sideslip)}
+\label{sec:2dof-bicycle}
+
+The MATLAB \emph{handling} model is a single-track bicycle
+~\cite{gillespie,milliken}: two planar degrees of freedom after speed
+is treated as a prescribed (or slowly varying) parameter. With
+longitudinal speed $u$ (\si{\metre\per\second}), lateral speed $v$,
+yaw rate $r$ (\si{\radian\per\second}), wheelbase $L=a+|b|$, and linear
+cornering stiffnesses $C_F,C_R$ (\si{\newton\per\radian}),
+\begin{align}
+  m(\dot v + u r) &= F_{yF} + F_{yR}, \label{eq:2dof-lat}\\
+  I_{zz}\dot r &= a F_{yF} + b F_{yR}, \label{eq:2dof-yaw}
+\end{align}
+where $b$ is negative if measured rearward from the centre of gravity
+(CG). Small-angle slip:
+\begin{equation}
+  \alpha_F = \delta - \frac{v + a r}{u},\qquad
+  \alpha_R = -\frac{v + b r}{u},\qquad
+  F_{yF}=C_F\alpha_F,\quad F_{yR}=C_R\alpha_R.
+\end{equation}
+In OpenLAP, this bicycle is used primarily as a \emph{post-process}:
+path curvature $\kappa(s)$ and speed $v(s)$ are already known from QSS,
+so centripetal demand $m v^2\kappa$ is inverted for extra steer and
+body sideslip $\beta=v/u$ (Section~\ref{sec:hud}). The bicycle is not
+integrated as a yaw-inertia ODE along the track.
+
+\eng{Equations~\eqref{eq:2dof-lat}--\eqref{eq:2dof-yaw} give
+understeer gradient and a steer trace that MATLAB users already trust.
+They cannot produce left/right $F_z$ from springs, roll-camber, or
+aero that depends on ride height.}
+
+\subsection{Quasi-steady lap in MATLAB}
+\label{sec:matlab-qss}
+
+OpenLAP does not integrate the bicycle in time for endurance lap time.
+It uses the same three-pass construction now in Python
+(Section~\ref{sec:qss}):
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item Build or import a GGV table: at each speed, the admissible
+        $(a_x,a_y)$ set, with $a_x,a_y$ stored in units of $g$.
+  \item Corner limit: $v_{\max}(s)=\sqrt{a_y^{\max}(v)/|\kappa(s)|}$.
+  \item Forward pass: accelerate no harder than $a_x^{\max}(v,a_y)$.
+  \item Backward pass: brake no harder than $|a_x^{\min}|$.
+  \item $v=\min(v_{\max},v_{\mathrm{acc}},v_{\mathrm{brk}})$, then
+        $t=\int \mathrm{d}s/v$.
+\end{enumerate}
+
+Kinematic tire loads after the lap use lumped transfer
+$\Delta F_z \propto m a h / t$ (Section~\ref{sec:hud}), not a sprung
+roll ODE.
+
+\subsection{Quarter-car 2DOF (ride)}
+\label{sec:quarter}
+
+Ride was, and remains, a separate MATLAB 2DOF quarter-car: sprung mass
+$m_s$ and unsprung mass $m_u$,
+\begin{align}
+  m_s\ddot z_s &= -k_s(z_s-z_u)-c_s(\dot z_s-\dot z_u),\\
+  m_u\ddot z_u &= k_s(z_s-z_u)+c_s(\dot z_s-\dot z_u)
+                 -k_t(z_u-z_r),
+\end{align}
+with road $z_r(t)$ and tire stiffness $k_t$. That model is the correct
+tool for wheel hop and damper curves. The 6DOF plant in this report
+does \emph{not} absorb it: corners are algebraic (Section~\ref{sec:corner}).
+
+\subsection{Why 6DOF is the upgrade}
+\label{sec:upgrade}
+
+\begin{center}
+\begin{tabular}{@{}p{0.30\textwidth}p{0.32\textwidth}p{0.32\textwidth}@{}}
+\toprule
+Capability & MATLAB 2DOF / OpenLAP & \texttt{fsae-6dof} \\
+\midrule
+Rigid-body motion
+  & Planar yaw + sideslip; ride in a separate quarter-car
+  & Coupled surge, sway, heave, roll, pitch, yaw. \\
+Normal load
+  & Algebraic $m a h/t$ after QSS
+  & $F_z$ from series springs, ARB, and Euler roll/pitch. \\
+Aero
+  & Speed in the GGV table; little or no $z,\mu$ coupling
+  & $C_L(z,\mu)$, $C_D(z,\mu)$ at a pressure centre. \\
+Tires
+  & $\mu$ or linear $C_F,C_R$
+  & Combined-slip Pacejka; $\kappa$ a state per wheel. \\
+Powertrain
+  & Torque curve / power in OpenVEHICLE
+  & EV envelope, regen, viscous LSD, independent rear spins. \\
+Lap time (Studio)
+  & OpenLAP three-pass
+  & Same three-pass, optional 6DOF G-G as the table. \\
+Ride / wheel hop
+  & Quarter-car 2DOF
+  & Unchanged; still MATLAB. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The upgrade is coupling. A Formula~SAE car generates lateral
+acceleration from $F_z$ and camber; $F_z$ comes from roll, heave,
+pitch, and downforce; downforce depends on ride height and pitch. A
+planar bicycle with post-hoc load transfer cannot close that loop.
+The 6DOF plant can, which is why G-G and optimal lap time use
+\texttt{fsae-6dof} rather than the MATLAB ODE.
+
+Continuity for the club: OpenVEHICLE / OpenTRACK files remain the
+parameter source, QSS remains the daily lap method, and HUD channels
+remain OpenLAP-shaped so existing MATLAB plots are comparable.
+
+\eng{Trust the MATLAB car file as the official numbers. This stack
+reads the same cells; it does not maintain a second mass or power.}
+
+% ========================================================================
+\section{What the model borrows (and what it does not)}
+\label{sec:borrows}
+% ========================================================================
+
+\begin{table}[ht]
+\centering
+\caption{Intellectual inventory.}
+\begin{tabular}{@{}llp{7.2cm}@{}}
+\toprule
+Layer & Source & What we took \\
+\midrule
+Newton--Euler 6DOF chassis
+  & fastest-lap~\cite{manzanero-fastestlap}
+  & $\boldsymbol{\omega}\times\mathbf{v}$ in the body frame; Euler
+    equations with small roll/pitch; kart-style algebraic corners. \\
+Pacejka tires
+  & Pacejka~\cite{pacejka}, fastest-lap \texttt{Tire\_pacejka\_std}
+  & Combined slip $F_x,F_y$ vs $\kappa,\alpha,F_z$. Shape coefficients
+    remain placeholders pending TTC~\cite{ttc}. \\
+G-G thinking
+  & Milliken~\cite{milliken}
+  & Admissible $(a_x,a_y)$ at a given speed; friction ellipse. \\
+Bicycle steer post-process
+  & Gillespie~\cite{gillespie}, OpenLAP~\cite{openlap}
+  & HUD $\delta,\beta$ from $v,\kappa,C_F,C_R$ --- not 6DOF states. \\
+QSS three-pass lap
+  & OpenLAP~\cite{openlap}
+  & $v_{\max}$, forward acceleration, backward braking along the
+    racing line. \\
+EV envelope
+  & FSAE rules~\cite{fsae-rules}
+  & $T=\min(T_{\mathrm{peak}}, P_{\max}/\omega)$ after the gearbox. \\
+Aero maps
+  & Katz-style linearisation~\cite{katz}
+  & $C_L(z,\mu)$, $C_D(z,\mu)$ about a pressure centre. \\
+Parameters
+  & VD OpenVEHICLE workflow~\cite{jones-linkedin,openlap}
+  & Mass, tracks, wheel rates, $C_L/C_D$, 80\,\si{\kilo\watt}, 2019
+    endurance map. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The MATLAB OpenLAP ODE was not ported into C++. Unsprung masses, 3D
+wishbone inverse kinematics, battery state of charge, ABS, and track
+banking are out of scope (design specs
+\texttt{2026-08-14-fsae-6dof-design.md} and
+\texttt{2026-08-14-fsae-further-ideas-design.md}).
+
+% ========================================================================
+\section{Two models, one car file}
+\label{sec:two-models}
+% ========================================================================
+
+\begin{center}
+\begin{tabular}{@{}p{0.47\textwidth}p{0.47\textwidth}@{}}
+\toprule
+\textbf{6DOF plant (G-G / optimal lap time)} &
+\textbf{QSS + HUD (Studio)} \\
+\midrule
+States: body $u,v,r,z,\phi,\mu$ and rates;
+four wheel spins; four tire temperatures.
+Forces from Pacejka at each contact patch.
+Aero at the pressure centre.
+EV torque on the rear axle.
+&
+States along the track: $s$, $v(s)$ only.
+$a_y = v^2 \kappa / g$, $a_x$ from
+$v^2$ differences.
+Steer, $\beta$, $F_z$, TPS/BPS are
+reconstructed after the lap. \\
+\midrule
+File: \texttt{src/core/vehicles/fsae6dof.h} &
+File: \texttt{examples/python/fsae/qss\_lap.py} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\eng{A ride-rate change in the 6DOF plant can move G-G through $F_z$
+and camber. The same change in Studio QSS with the vehicle-parameter
+envelope affects lap time only through mass, $\mu$, power, and aero,
+not through Pacejka. Those two deltas are different tests.}
+
+% ========================================================================
+\section{Why the system is six degree-of-freedom}
+\label{sec:why6}
+% ========================================================================
+
+A free rigid body in three-dimensional space has six degrees of
+freedom: three translations and three rotations. For the sprung mass
+the implementation uses a road-aligned chassis
+frame~\cite{manzanero-fastestlap,genta}:
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+DOF & Symbol & Unit \\
+\midrule
+Surge (longitudinal) & $u$ or $v_x$          & \si{\metre\per\second} \\
+Sway (lateral)        & $v$ or $v_y$          & \si{\metre\per\second} \\
+Heave (vertical)      & $z$                   & \si{\metre} \\
+Roll                   & $\phi$                & \si{\radian} \\
+Pitch                  & $\mu$                 & \si{\radian} \\
+Yaw & $\psi$ (road) / $r=\dot\psi$ (body yaw rate)
+    & \si{\radian}, \si{\radian\per\second} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Why the plant is not a bicycle.}
+A planar bicycle (yaw and lateral velocity only) cannot provide:
+(i)~normal load from heave, roll, pitch, and the series spring
+network; (ii)~aerodynamics that depend on ride height $z$ and pitch
+$\mu$; (iii)~left/right camber from roll; (iv)~independent rear wheel
+speeds for a viscous limited-slip differential (LSD). Formula~SAE
+performance is dominated by load transfer and aero, which is why the
+plant is 6DOF.
+
+\paragraph{Why not 14DOF with unsprung masses.}
+Each unsprung corner adds vertical (and often spin) states. The MATLAB
+2DOF quarter-car remains the ride tool (Section~\ref{sec:quarter}).
+The 6DOF plant treats the corner as an algebraic spring--damper into
+the tire, with hub motion slaved to $z,\phi,\mu$: fewer states for G-G
+and optimal-lap nonlinear programs (NLPs), at the cost of wheel hop.
+
+\paragraph{Internal states that are not the six rigid DOF.}
+Four dimensionless longitudinal slips $\kappa$ (or equivalently wheel
+spins) and four carcass temperatures $T_i$ are tire and thermal
+dynamics attached to the same body.
+
+\codepath{Chassis states in \texttt{chassis\_car\_6dof.h}: $z,\phi,\mu$
+and $\dot z,\dot\phi,\dot\mu$. The planar chassis base supplies $u,v,r$.
+The FSAE chassis adds $T_{\mathrm{FL,FR,RL,RR}}$. Each FSAE axle adds
+left/right $\kappa$ and spin momentum.}
+
+% ========================================================================
+\section{Units, constants, and sign conventions}
+\label{sec:units}
+% ========================================================================
+
+Unless a table says otherwise, the plant is SI.
+
+\begin{table}[ht]
+\centering
+\caption{Constants and unit justification.}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Symbol      & Value              & SI unit & Justification \\
+\midrule
+$g$         & $9.81$             & \si{\metre\per\second\squared}
+            & Standard gravity. HUD $a_x,a_y$ in ``$g$'' are $a/g$
+              (dimensionless). \\
+$m$         & $277.2$            & \si{\kilo\gram}
+            & Inertia in $F=ma$. Includes driver in the VD book. \\
+$\rho$      & $1.2$              & \si{\kilo\gram\per\metre\cubed}
+            & Near-ISA sea-level density in
+              $D=\tfrac12\rho C_D A v^2$. \\
+$A$         & $1.14$             & \si{\metre\squared}
+            & Frontal area for aerodynamic force. \\
+$P_{\max}$  & $80\times10^3$     & \si{\watt}
+            & FSAE EV cap~\cite{fsae-rules}. Stored as \si{\kilo\watt}
+              in the workbook. \\
+$T_{\mathrm{peak}}$ & $240$      & \si{\newton\metre}
+            & Motor torque; $\mathrm{N\cdot m} = \mathrm{J}$. \\
+$k_w$       & $1.3\times10^5$    & \si{\newton\per\metre}
+            & Wheel rate: force per metre of wheel travel. \\
+$c_s$       & $1500$             & \si{\newton\second\per\metre}
+            & Damper: force per \si{\metre\per\second}. \\
+$I_{zz}$    & $110$              & \si{\kilo\gram\metre\squared}
+            & Yaw inertia; $M = I\alpha$. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Workbook millimetres.}
+OpenVEHICLE stores wheelbase, tracks, CG height, and tire radius in
+\si{\milli\metre} because that is the MATLAB convention. The importer
+divides by $1000$ before XML. Example: wheelbase
+\SI{1620}{\milli\metre} $= \SI{1.620}{\metre}$. CG in XML is
+\texttt{com.z = -h} with $h=\SI{0.25}{\metre}$ so geometric height is
+positive up in the fastest-lap car frame.
+
+\paragraph{OpenVEHICLE $C_L$ / $C_D$ signs.}
+MATLAB OpenVEHICLE uses $C_L>0$ as lift and, in the club book,
+typically negative $C_D$. fastest-lap uses $+C_L$ as downforce and
+$+C_D$ as drag. The importer flips sign:
+\[
+  C_{L,\mathrm{FL}} = -C_{L,\mathrm{OV}}\cdot f_{C_L},\qquad
+  C_{D,\mathrm{FL}} = -C_{D,\mathrm{OV}}\cdot f_{C_D}.
+\]
+Club defaults $C_{L,\mathrm{OV}}=-3.77$, $C_{D,\mathrm{OV}}=-1.4$ become
+downforce $3.77$ and drag $1.4$ in XML.
+
+\paragraph{Accelerations in the HUD.}
+QSS stores $a_x,a_y$ in $g$. Multiply by
+$9.81\,\si{\metre\per\second\squared}$ for SI. Speed in plots is
+$v\cdot 3.6$ for \si{\kilo\metre\per\hour}.
+
+% ========================================================================
+\section{Newton--Euler 6DOF: governing equations}
+\label{sec:newton}
+% ========================================================================
+
+In an inertial frame, $\sum\mathbf{F}=m\mathbf{a}$ and
+$\sum\mathbf{M}=\dot{\mathbf{H}}$. The chassis is written in a
+\textbf{road-projected body frame} that yaws with the car. Roll and
+pitch are small extra rotations that move the axle frames; they are
+not full direction-cosine updates~\cite{manzanero-fastestlap}. The
+chassis frame remains parallel to the road projection of the CG frame
+(\texttt{chassis\_car\_6dof.h}).
+
+\paragraph{Linear momentum (body frame).}
+For velocity $\mathbf{v}$ measured in a rotating frame with angular
+velocity $\boldsymbol{\omega}$,
+\begin{equation}
+  \dot{\mathbf{v}}_{\mathrm{inertial}}
+  = \dot{\mathbf{v}}_{\mathrm{body}} + \boldsymbol{\omega}\times\mathbf{v}.
+  \label{eq:transport}
+\end{equation}
+Newton's law in the body frame is therefore
+\begin{equation}
+  \dot{\mathbf{v}}_{\mathrm{body}}
+  = -\boldsymbol{\omega}\times\mathbf{v} + \frac{\mathbf{F}_{\mathrm{total}}}{m}.
+  \label{eq:newton}
+\end{equation}
+The code names $\boldsymbol{\omega}\times\mathbf{v}$ as \texttt{Newton\_lhs}:
+
+\begin{lstlisting}[language=C++,caption={Transport theorem, \texttt{chassis\_car\_6dof.hpp}.}]
+return cross(omega, vel);  // Newton_lhs = omega x v
+// dvdt = -Newton_lhs + F_total / m
+\end{lstlisting}
+
+$\mathbf{F}_{\mathrm{total}}$ is tire force (rotated into the road
+frame) plus $mg$ on $Z$ plus scaled aero. Gravity is $+m g_0$ on $Z$ in
+the fastest-lap road-frame convention.
+
+\paragraph{Angular momentum.}
+Euler's equation for a rigid body,
+\begin{equation}
+  \mathbf{I}\dot{\boldsymbol{\omega}}
+  + \boldsymbol{\omega}\times(\mathbf{I}\boldsymbol{\omega})
+  = \mathbf{M}_{\mathrm{total}},
+  \label{eq:euler}
+\end{equation}
+is specialised for small roll $\phi$ and pitch $\mu$ with yaw rate
+$\omega\equiv r$. Moments are taken about the road contact geometry,
+not a free-space CG, which is why $m h$ coupling terms appear. The
+code solves
+\[
+  \mathbf{E}_m\,\ddot{\boldsymbol{\varphi}}
+  = -\mathbf{E}_{\mathrm{lhs}} + \mathbf{M}_{\mathrm{total}},
+\]
+where $\ddot{\boldsymbol{\varphi}}=(\ddot\phi,\ddot\mu,\dot r)$ and (with
+$h=-\texttt{com.z}$, $z$ the heave state)
+\begin{align}
+  E_{\mathrm{lhs},x}
+  &= m\bigl(\dot v\, h + (h-z)\,r u\bigr)
+     - (I_{yy}-I_{zz}+I_{xx}) r \dot\mu
+     - (I_{yy}-I_{zz}) r^2 \phi,\\
+  E_{\mathrm{lhs},y}
+  &= m\bigl((z-h)\dot u + h r v\bigr)
+     + (I_{yy}-I_{zz}+I_{xx}) r \dot\phi
+     - \bigl((I_{xx}-I_{zz})\mu + I_{xz}\bigr) r^2,\\
+  E_{\mathrm{lhs},z}
+  &= 2 I_{zx} \dot\mu\, r,
+\end{align}
+\begin{equation}
+  \mathbf{E}_m =
+  \begin{pmatrix}
+    I_{xx} & 0      & -(I_{xx}-I_{zz})\mu - I_{xz} \\
+    0      & I_{yy} & (I_{yy}-I_{zz})\phi \\
+    -I_{xz} & 0     & I_{zz} + 2 I_{xz} \mu
+  \end{pmatrix}.
+\end{equation}
+Those entries follow from a small-angle linearisation that mixes
+roll and pitch into the yaw inertia row, keeping the chassis frame
+parallel to the road.
+
+Moments come from axle forces at
+$\mathbf{x}_{\mathrm{front}},\mathbf{x}_{\mathrm{rear}}$ and aero at the
+pressure centre plus current heave:
+\begin{equation}
+  \mathbf{M}
+  = \mathbf{T}_f + \mathbf{x}_f\times\mathbf{F}_f
+  + \mathbf{T}_r + \mathbf{x}_r\times\mathbf{F}_r
+  + \bigl(\mathbf{x}_{\mathrm{pc}} + z\,\mathbf{e}_z\bigr)
+    \times\mathbf{F}_{\mathrm{aero}}.
+  \label{eq:moment}
+\end{equation}
+
+\eng{Roll moment from lateral force is $F_y h$ plus
+$\mathbf{x}\times\mathbf{F}$ of left/right $F_z$. Load transfer is a
+consequence of the dynamics, not an independent spreadsheet.}
+
+\paragraph{Why G-G holds $\dot z=\dot\phi=\dot\mu=0$.}
+A G-G point is a steady acceleration at fixed speed. The NLP asks for
+controls and slips such that heave, roll, pitch, and yaw residuals
+match a prescribed $(a_x,a_y)$. Tire temperatures are held at ambient
+so thermal transients do not enter the envelope. See
+\texttt{steady\_state\_equations} in \texttt{fsae6dof.h}.
+
+% ========================================================================
+\section{Corner compliance: why $F_z = k_t w + c_s \dot s$}
+\label{sec:corner}
+% ========================================================================
+
+Each corner is not a separate unsprung mass. Vertical tire compression
+$w$ is an algebraic function of heave, roll, and (front) steer jacking,
+using the kart-style series network~\cite{manzanero-fastestlap}.
+
+Let $k_t$ be tire vertical stiffness (\si{\newton\per\metre}), $k_w$
+wheel rate, $k_{\mathrm{AR}}$ anti-roll stiffness referred to the axle.
+Two reduction coefficients appear in the kart-style network. The code
+names them \texttt{sym\_stiffness} and \texttt{assym\_stiffness}. The
+first is a compliance; the second is dimensionless as used in $w_{L,R}$:
+\begin{equation}
+  C_{\mathrm{sym}} = \frac{1}{k_w + k_t}
+  \qquad [\si{\metre\per\newton}],
+\end{equation}
+\begin{equation}
+  C_{\mathrm{asym}}
+  = \frac{2 k_{\mathrm{AR}} k_t C_{\mathrm{sym}}}{2 k_{\mathrm{AR}} + k_w + k_t}
+  \qquad [-].
+\end{equation}
+With axle height $z_{\mathrm{axle}}$ (metres, road frame $Z$) and
+unloaded radius $R_0$ (metres),
+\[
+  \delta_{\mathrm{sym}} = z_{\mathrm{axle}} + R_0,\qquad
+  \delta_{\mathrm{asym}} = \tfrac12 t\,\phi
+  \quad\text{(plus front jacking $\beta_R\delta$ if steering)},
+\]
+the algebraic tire compressions (metres) are
+\begin{align}
+  w_L &= k_w C_{\mathrm{sym}}(\delta_{\mathrm{sym}}-\delta_{\mathrm{asym}})
+        - \delta_{\mathrm{asym}} C_{\mathrm{asym}},\\
+  w_R &= k_w C_{\mathrm{sym}}(\delta_{\mathrm{sym}}+\delta_{\mathrm{asym}})
+        + \delta_{\mathrm{asym}} C_{\mathrm{asym}}.
+\end{align}
+The factor $k_w C_{\mathrm{sym}} = k_w/(k_w+k_t)$ is the series-spring
+share: only a fraction of chassis travel becomes tire squash. Slider
+deflections $s_L,s_R$ reconstruct damper length; rates $\dot s$ follow
+by replacing $\delta$ with $\dot\delta$. Contact load is
+\begin{equation}
+  F_{z,i} = \mathrm{smooth\_pos}\bigl(k_t w_i + c_s \dot s_i,\, 1\bigr),
+  \label{eq:fz}
+\end{equation}
+so the damper is not an extra ODE. \texttt{smooth\_pos} enforces
+$F_z\ge 0$. $k_t=\SI{240000}{\newton\per\metre}$ in the UBCO XML.
+
+\paragraph{Units.}
+$k_t w$: $(\mathrm{N/m})\cdot\mathrm{m} = \mathrm{N}$.
+$c_s \dot s$: $(\mathrm{N\cdot s/m})\cdot(\mathrm{m/s}) = \mathrm{N}$.
+
+\paragraph{UBCO numbers (VD book $\to$ XML).}
+Front $k_w=\SI{130000}{\newton\per\metre}$,
+$k_{\mathrm{AR}}=\SI{11260}{\newton\per\metre}$,
+$c_s=\SI{1500}{\newton\second\per\metre}$; rear $143900$, $11160$,
+$1400$. Tracks $t_f=\SI{1.225}{\metre}$, $t_r=\SI{1.220}{\metre}$.
+
+\eng{A stiffer anti-roll bar increases $C_{\mathrm{asym}}$ and therefore
+$F_z$ transfer at a given roll $\phi$. Roll itself is solved from
+Euler; transfer cannot be prescribed independently of $h$, $t$, and
+$k_{\mathrm{AR}}$.}
+
+% ========================================================================
+\section{Tires: Pacejka, $\kappa$, $\alpha$, and TTC status}
+\label{sec:tires}
+% ========================================================================
+
+The contact patch does not obey Coulomb friction as a hard diamond.
+Pacejka's Magic Formula~\cite{pacejka} gives smooth $F_x(\kappa,F_z)$
+and $F_y(\alpha,F_z)$ and a combined-slip reduction. The sine form used
+in \texttt{Tire\_pacejka\_std} is
+\begin{equation}
+  F = D\sin\bigl(C\arctan(B x - E(B x - \arctan B x))\bigr),
+\end{equation}
+with $x$ the slip ($\kappa$ or $\alpha$), $D=\mu F_z$ the peak
+(\si{\newton}), $C$ the shape, $B$ the stiffness factor, $E$ the
+curvature. Combined slip then scales the pure curves by cosine
+weighting factors $r_{Bx},r_{Cx}$ (and lateral analogues), so peak
+$F_x$ and peak $F_y$ cannot occur together.
+
+Longitudinal slip (dimensionless)
+\begin{equation}
+  \kappa \approx \frac{\omega R - v_x}{v_x}
+\end{equation}
+is a state on each FSAE wheel (F1-3DOF style), not an algebraic
+function of throttle. The update path is
+\texttt{update\_from\_kappa}$(\kappa\cdot\kappa_{\max}(F_z))$, which
+lets a G-G NLP place slips on the friction ellipse.
+
+\paragraph{Relation of $p_{Dx1}$ and $p_{Dy1}$ to workbook $\mu$.}
+XML \texttt{pDx1}$=0.9$ and \texttt{pDy1}$=1.5$ match OpenVEHICLE
+$\mu_x,\mu_y$. They are peak friction coefficients (dimensionless):
+$D_x \approx p_{Dx1} F_z$. They are not a fitted Pacejka shape until a
+TTC identification replaces $B,C,E,K$.
+
+\paragraph{Thermal grip.}
+One node per tire~\cite{milliken}:
+\begin{equation}
+  C\frac{\mathrm{d}T}{\mathrm{d}t} = |\mathcal{D}| - h(T-T_{\mathrm{amb}}),
+  \label{eq:thermal}
+\end{equation}
+with $C=\SI{900}{\joule\per\kelvin}$ (carcass thermal capacity),
+$h=\SI{15}{\watt\per\kelvin}$, $T_{\mathrm{amb}}=\SI{298.15}{\kelvin}$,
+$T_{\mathrm{opt}}=\SI{353.15}{\kelvin}$. Dissipation $\mathcal{D}$ is
+Pacejka sliding power (\si{\watt}). Grip on tangential forces only:
+\begin{equation}
+  \mu_{\mathrm{scale}}
+  = \mathrm{clip}\Bigl(1 - k_\mu \bigl((T-T_{\mathrm{opt}})/T_{\mathrm{opt}}\bigr)^2,\;
+    0.5,\; 1.1\Bigr),
+\end{equation}
+$k_\mu=0.3$. G-G holds $T=T_{\mathrm{amb}}$ (isothermal).
+
+\paragraph{Data status.}
+Pacejka \emph{shape} coefficients are placeholders until a Hoosier TTC
+fit~\cite{ttc}. Interim QSS envelopes use $\mu_x,\mu_y$ from the
+OpenVEHICLE Info sheet (defaults $0.9$ and $1.5$). When TTC data are
+fitted, replace the Pacejka block. Do not treat a Studio $\mu$ edit as
+a tire model.
+
+% ========================================================================
+\section[Electric powertrain torque-speed envelope]%
+        {Electric powertrain: why $T=\min(T_{\mathrm{peak}},P_{\max}/\omega)$}
+\label{sec:ev}
+% ========================================================================
+
+Below base speed the inverter is torque-capped; above base speed it is
+power-capped~\cite{fsae-rules}. With \texttt{peak-torque} present,
+\texttt{Engine::operator()} evaluates
+\begin{equation}
+  \omega_m = n_g\,\omega_{\mathrm{axle}},\qquad
+  T_{\mathrm{motor}}
+  = u_{\mathrm{cmd}}\min\bigl(T_{\mathrm{peak}},\;
+    P_{\max}/(\omega_m+\epsilon)\bigr),
+  \label{eq:envelope}
+\end{equation}
+then returns axle torque $T_{\mathrm{axle}}=n_g T_{\mathrm{motor}}$. XML
+stores $P_{\max}$ in \si{\kilo\watt}; C++ multiplies by $10^3$ to obtain
+\si{\watt}. The identity $P=T\omega$ requires
+$[\mathrm{W}]=[\mathrm{N\cdot m}][\mathrm{rad/s}]$.
+
+Club numbers: $T_{\mathrm{peak}}=\SI{240}{\newton\metre}$,
+$P_{\max}=\SI{80}{\kilo\watt}$, $n_g=4.8$. Base motor speed
+\[
+  \omega_{\mathrm{base}} = P_{\max}/T_{\mathrm{peak}}
+  = 80000/240 \approx \SI{333}{\radian\per\second}
+  \approx \SI{3180}{\rpm}.
+\]
+The argument \texttt{angular\_speed} is the mean of left and right
+wheel spins (\si{\radian\per\second}), not motor rpm.
+
+Throttle $u\in[-1,1]$:
+\begin{align}
+  u>0 &\Rightarrow T = u\cdot T_{\mathrm{env}}(\omega),\\
+  u<0 &\Rightarrow T = u_{\mathrm{regen}}\cdot T_{\mathrm{env}},\quad
+  u_{\mathrm{regen}} = \rho_{\mathrm{regen}} |u|,
+\end{align}
+with $\rho_{\mathrm{regen}}=0.3$, plus friction brakes
+$T_{\mathrm{brake}} = T_{\mathrm{brake,max}}\cdot\mathrm{pos}(-u)\cdot b$
+on each axle, $b$ = brake bias (1 = all front). Default bias $0.53$.
+
+Rear viscous LSD:
+\begin{equation}
+  T_{L,R} = \tfrac12 T_{\mathrm{eng}} \mp k_d(\omega_L-\omega_R),
+\end{equation}
+$k_d=\SI{80}{\newton\metre\second\per\radian}$.
+
+Wheel spin ODE (left):
+\begin{equation}
+  I_w \dot\omega_L = T_L + T_{\mathrm{tire},x,L},
+\end{equation}
+$I_w=\SI{0.5}{\kilo\gram\metre\squared}$ per axle inertia entry.
+
+\codepath{\texttt{axle\_car\_6dof\_fsae.hpp} engine torque split;
+\texttt{Engine} envelope when XML contains \texttt{peak-torque}.}
+
+% ========================================================================
+\section{Aerodynamics}
+\label{sec:aero}
+% ========================================================================
+
+At the pressure centre $\mathbf{x}_{\mathrm{pc}}$,
+\begin{equation}
+  \mathbf{F}_{\mathrm{aero}}
+  = \tfrac12\rho v^2 A \bigl( C_D\,\mathbf{e}_{\mathrm{drag}}
+  + C_L\,\mathbf{e}_{\mathrm{lift}}\bigr)
+\end{equation}
+with linear maps
+\begin{align}
+  C_{L,\mathrm{eff}} &= C_L\bigl(1 + \tfrac{\partial C_L}{\partial z} z
+    + \tfrac{\partial C_L}{\partial\mu}\mu\bigr),\\
+  C_{D,\mathrm{eff}} &= C_D\bigl(1 + \tfrac{\partial C_D}{\partial z} z
+    + \tfrac{\partial C_D}{\partial\mu}\mu\bigr),
+\end{align}
+clamped to $(0.2,3.0)$ so an NLP cannot invert aero. Defaults
+$\partial C_L/\partial z = -8\,\si{\per\metre}$ (more downforce as the
+car squats in the fastest-lap $z$ convention). Confirm the sign against
+track testing before using a ride-height sweep as a design decision.
+
+Front aero distribution
+\[
+  \eta_a = (x_{\mathrm{pc}}-x_r)/L \approx 0.48
+\]
+is a geometric lever, not a second $C_L$.
+
+% ========================================================================
+\section{Linear kinematics (not hardpoints)}
+\label{sec:kin}
+% ========================================================================
+
+\begin{align}
+  \gamma_{L,R} &= \gamma_0 \pm (\partial\gamma/\partial\phi)\,\phi,\\
+  \delta_{\mathrm{toe},L,R} &= \delta_{t0} \pm (\partial\delta_t/\partial\phi)\,\phi,
+\end{align}
+plus front steer $\delta$ on the $Z$ rotation. Default $\gamma_0=-1^\circ$,
+camber gain $0.3\,\mathrm{rad/rad}$. This is a first-order Taylor
+expansion of a motion ratio, not a three-dimensional suspension.
+
+% ========================================================================
+\section{G-G diagrams}
+\label{sec:gg}
+% ========================================================================
+
+Milliken's G-G diagram~\cite{milliken} is the set of $(a_x,a_y)$ the car
+can sustain at speed $v$. Numerically, fastest-lap solves the 6DOF
+steady equations on a grid of lateral accelerations and returns the
+maximum and minimum longitudinal acceleration (throttle versus brake).
+
+\paragraph{Speed dependence.}
+Power-limited $a_x \sim P/(m v)$ falls with $v$. Downforce $\sim v^2$
+raises $F_z$ and therefore $a_y^{\max}$. A single friction circle is
+not an operating map; a stack of ellipses versus speed is.
+
+\paragraph{Studio vehicle envelope} (\texttt{gg\_from\_vehicle}), used
+when synthetic G-G is enabled (browser / no C++ library). $C_L$ here is
+the fastest-lap (positive downforce) coefficient after the OpenVEHICLE
+sign flip. Load factor $L$ is dimensionless:
+\begin{align}
+  L &= 1 + \frac{\tfrac12\rho \max(C_L,0) A v^2}{m g},\\
+  a_y^{\max}/g &= \min(2.8,\; \mu_y L),\\
+  a_{x,\mathrm{power}}/g &= \frac{P_{\max}/v - \tfrac12\rho |C_D| A v^2}{m g},\\
+  a_{x,\mathrm{tire}}/g &= 0.65\,\mu_x L,\\
+  a_x^{\max}/g &= \min(a_{x,\mathrm{power}}, a_{x,\mathrm{tire}}),\\
+  a_x^{\min}/g &= -\min\bigl(\mu_x L,\; 2 T_{\mathrm{brake}}/(R m g)\bigr).
+\end{align}
+The factor $0.65$ is a driven-axle / combined-slip derate: full
+$\mu_x F_z$ cannot be used for thrust while cornering. Two braked
+axles at $T_{\mathrm{brake}}=\SI{1200}{\newton\metre}$ each give the
+$2T/(Rmg)$ term ($R=\SI{0.203}{\metre}$). A friction ellipse
+$a_x(a_y) = a_{x,\mathrm{peak}}\sqrt{1-(a_y/a_y^{\max})^2}$ is tabulated
+at $v\in\{8,16,28,40\}\,\si{\metre\per\second}$. This envelope is
+intentionally simpler than Pacejka G-G so that Studio mass and power
+edits change lap time without \texttt{libfastestlapc}.
+
+% ========================================================================
+\section{Quasi-steady-state lap (OpenLAP three-pass)}
+\label{sec:qss}
+% ========================================================================
+
+The racing line is the OpenTRACK polyline: curvature $\kappa(s)$ in
+\si{\per\metre}. Point-mass tangent acceleration:
+\begin{equation}
+  a_y = v^2 \kappa \quad [\si{\metre\per\second\squared}],\qquad
+  \frac{a_y}{g} = \frac{v^2\kappa}{g}.
+  \label{eq:ay}
+\end{equation}
+Corner-limited speed: $v_{\max}=\sqrt{a_y^{\max}(v)/|\kappa|}$, iterated
+because $a_y^{\max}$ depends on $v$.
+
+Forward pass (drive envelope):
+\begin{equation}
+  v_{i+1}^2 = \min\bigl(v_{\max,i+1}^2,\; v_i^2 + 2 a_{x,\max} g\,\Delta s\bigr).
+\end{equation}
+Backward pass (brake envelope):
+\begin{equation}
+  v_i^2 = \min\bigl(v_{\max,i}^2,\; v_{i+1}^2 - 2 a_{x,\min} g\,\Delta s\bigr)
+\end{equation}
+with $a_{x,\min}<0$. Final
+$v=\min(v_{\max},v_{\mathrm{acc}},v_{\mathrm{brk}})$. Time
+\begin{equation}
+  t_{i+1}=t_i+\frac{\Delta s}{\tfrac12(v_i+v_{i+1})}.
+\end{equation}
+Then
+\begin{equation}
+  a_x/g = \frac{v_{i+1}^2-v_i^2}{2\Delta s\, g}.
+\end{equation}
+
+\eng{Larger $|\kappa|$ lowers $v_{\max}$. A longer straight raises top
+speed until power or drag limits. QSS cannot capture snap oversteer:
+there is no yaw-inertia ODE on the track.}
+
+\codepath{\texttt{qss\_lap.py} function \texttt{qss\_lap()}. Mesh from
+\texttt{mesh\_opentrack}.}
+
+% ========================================================================
+\section{HUD channels: reconstructed, not integrated 6DOF}
+\label{sec:hud}
+% ========================================================================
+
+After QSS, the dashboard requires throttle position (TPS), brake
+position (BPS), steer, $\beta$, and four $F_z$. Those quantities are
+not taken from \texttt{fsae6dof} states.
+
+\paragraph{Pedals.}
+\[
+  \mathrm{TPS}=\mathrm{clip}(a_x/a_{x,\max},0,1),\quad
+  \mathrm{BPS}=\mathrm{clip}(a_x/a_{x,\min},0,1)
+\]
+using the same envelope interpolation as the lap.
+
+\paragraph{Steer and sideslip (OpenLAP bicycle).}
+Kinematic Ackermann (degrees) is
+$\delta_{\mathrm{kin}}=\arctan(L\kappa)$ converted with
+\texttt{math.degrees}. Extra steer and body sideslip $\beta$ invert the
+linear bicycle that produces centripetal force $m v^2\kappa$
+(newtons; $\kappa$ in \si{\per\metre}):
+\begin{gather}
+  a=(1-d_f)L,\qquad b=-d_f L,\\
+  \begin{pmatrix} 2C_F & 2(C_F+C_R)\\ 2 C_F a & 2(C_F a + C_R b)\end{pmatrix}
+  \begin{pmatrix}\delta_{\mathrm{extra}}\\ \beta\end{pmatrix}
+  =
+  \begin{pmatrix} m v^2\kappa \\ 0 \end{pmatrix}.
+\end{gather}
+\texttt{bicycle\_steer} uses Cramer's rule:
+$\delta_{\mathrm{extra}}=c_{11} b_0/\det$,
+$\beta=-c_{10} b_0/\det$, $b_0=m v^2\kappa$. Then
+$\delta=\delta_{\mathrm{extra}}+\delta_{\mathrm{kin}}$ (degrees) and
+handwheel $=\delta\times$ rack ratio. $C_F,C_R$ must be
+\si{\newton\per\radian} (convert if the MATLAB book is N/deg).
+
+\paragraph{Lumped $F_z$ (newtons, downward).}
+With $a_x,a_y$ already in $g$,
+\begin{align}
+  \Delta F_{\mathrm{long}} &= m (a_x g) h / L,\\
+  \Delta F_{\mathrm{lat},f} &= m (a_y g) h d_f / t_f,\\
+  \Delta F_{\mathrm{lat},r} &= m (a_y g) h (1-d_f) / t_r.
+\end{align}
+Front axle load $d_f m g - \Delta F_{\mathrm{long}}$ is split
+$\pm\tfrac12\Delta F_{\mathrm{lat},f}$. A floor of \SI{50}{\newton}
+avoids zeros in the HUD. The sign matches $m a_y h / t$; the magnitude
+does not match the 6DOF spring network.
+
+\paragraph{Power and energy on the tires card.}
+$P \approx a_x g m v$ allocated by $F_z$ share; energy integrates
+$|P|\,\mathrm{d}t$. These are HUD units, not inverter energy.
+
+% ========================================================================
+\section{Parameter provenance}
+\label{sec:numbers}
+% ========================================================================
+
+\begin{table}[ht]
+\centering
+\caption{UBCO 2026 EV defaults (workbook $\to$ XML).}
+\scriptsize
+\begin{tabular}{@{}llll@{}}
+\toprule
+Quantity                 & Default        & Unit        & Provenance \\
+\midrule
+Total mass $m$           & 277.2          & kg          & VD OpenVEHICLE \texttt{Total Mass}; car+driver target. \\
+Front mass dist.\ $d_f$  & 51.27          & \%          & VD book. \\
+Wheelbase $L$            & 1620           & mm          & VD / chassis. XML splits $0.789$ and $-0.831$\,m. \\
+Track $t_f,t_r$          & 1225, 1220     & mm          & VD FastestLap sheet. \\
+CG height $h$            & 250            & mm          & VD estimate; XML \texttt{com.z=-0.25}. \\
+$C_L,C_D$ (OV)           & $-3.77,-1.4$   & ---         & VD aero; flipped for fastest-lap. \\
+$A$                      & 1.14           & m$^2$       & VD frontal area. \\
+$\rho$                   & 1.2            & kg/m$^3$    & VD / near-ISA sea level. \\
+$P_{\max}$               & 80             & kW          & FSAE EV rule~\cite{fsae-rules}. \\
+$T_{\mathrm{peak}}$      & 240            & N$\cdot$m   & Powertrain / motor datasheet via VD. \\
+Gear ratio                & 4.8            & ---         & Final drive in book. \\
+Wheel rates               & 130k / 143.9k  & N/m         & Suspension / VD. \\
+$\mu_x,\mu_y$            & 0.9, 1.5       & ---         & Interim; replace with TTC. \\
+$I_{xx,yy,zz}$           & 30, 90, 110    & kg$\cdot$m$^2$ & Estimates in FastestLap comments. \\
+2019 endurance map        & ---            & m           & VD OpenTRACK of FSAE 2019 endurance. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The OpenVEHICLE book is the club source of mass, power, and geometry
+~\cite{jones-linkedin,openlap}. Studio edits are experiments. Exporting
+\texttt{.xlsx} (and saving to ranking) is how an experiment becomes a
+candidate build file.
+
+\paragraph{Mk~4 historical scale.}
+The IC Mk~4 published \SI{245}{\kilo\gram}, wheelbase
+\SI{1525}{\milli\metre}, $C_L A=\SI{2.6}{\metre\squared}$
+~\cite{okmotorsports}. The 2026 EV book is a different vehicle; Mk~4
+aero must not be copied onto EV-2 without aero sign-off.
+
+% ========================================================================
+\section{Code map}
+\label{sec:code}
+% ========================================================================
+
+New software members can treat the following as the call graph of a
+Studio calculate request.
+
+\begin{lstlisting}[caption={Plant assembly (\texttt{fsae6dof.h}).}]
+Tire_pacejka_std x 4
+  -> Axle_car_6dof_fsae front  (STEERING_WITH_KAPPA)
+  -> Axle_car_6dof_fsae rear   (POWERED_WITH_DIFFERENTIAL)
+      -> Chassis_car_6dof_fsae (heave/roll/pitch, throttle, brake_bias,
+                                pressure_center, aero maps, tire T)
+          -> Road -> Dynamic_model_car
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,caption={Studio calculate (simplified).}]
+params = derived_vehicle(read_openvehicle_xlsx(car_xlsx))
+table  = gg_from_vehicle(params)   # or Driver envelope, or gg_diagram
+mesh   = mesh_opentrack(map_xlsx)
+result = qss_lap(mesh, table, v_cap=v_cap)
+view   = reconstruct_lap(result, mesh, table, params=params)
+write_hud_html(view, "hud.html")
+write_results_html(view, "results.html")
+\end{lstlisting}
+
+Public type string: \texttt{fsae-6dof}. C++ class: \texttt{fsae6dof}.
+Repository:~\cite{vehicle-model-v2}. Engine provenance:
+~\cite{manzanero-fastestlap}.
+
+% ========================================================================
+\section{Limitations}
+\label{sec:limits}
+% ========================================================================
+
+\begin{itemize}[leftmargin=1.6em]
+  \item QSS HUD $F_z$ and steer are reconstructions. Do not size
+        uprights from HUD $F_z$ alone.
+  \item Pacejka shapes are placeholders until TTC~\cite{ttc}.
+  \item QSS has no battery energy state; 80\,\si{\kilo\watt} is a power
+        cap, not pack energy.
+  \item No track elevation or banking.
+  \item Vehicle-parameter G-G is an ellipse, not a 6DOF friction
+        surface.
+  \item Optimal lap time (transient NLP) is registered in fastest-lap
+        but is not the Studio path.
+\end{itemize}
+
+% ========================================================================
+\section{Onboarding summary}
+\label{sec:onboard}
+% ========================================================================
+
+The sprung mass has six rigid-body degrees of freedom. Tires apply
+contact forces; the series spring network shares vertical load
+left/right; the motor is limited by peak torque or
+80\,\si{\kilo\watt}, whichever is more restrictive at the present
+speed; aerodynamic load grows with $v^2$ and with ride/pitch maps. A
+Studio lap time is: follow the OpenTRACK line, respect the G-G
+envelope in $a_y$ and $a_x$, integrate $\mathrm{d}s/v$. HUD steer and
+sideslip are the OpenLAP bicycle reconstructed on that speed trace, so
+existing MATLAB plots remain comparable~\cite{jones-linkedin,openlap}.
+
+Change official numbers in the car \texttt{.xlsx}, run Calculate, then
+compare lap time.
+
+\bibliographystyle{plainnat}
+\bibliography{ubco-2026-vehicle-model}
+
+% ========================================================================
+\appendix
+\section{Selected symbols}
+% ========================================================================
+
+\begin{tabular}{@{}lll@{}}
+\toprule
+Symbol                    & Meaning              & SI unit \\
+\midrule
+$m$                       & Total mass           & kg \\
+$L$                       & Wheelbase            & m \\
+$t_f,t_r$                 & Track widths         & m \\
+$h$                       & CG height            & m \\
+$\kappa_{\mathrm{path}}$  & Path curvature       & 1/m \\
+$\kappa_{\mathrm{tire}}$  & Longitudinal slip    & 1 \\
+$\alpha$                  & Slip angle           & rad \\
+$C_F,C_R$                 & Cornering stiffness  & N/rad \\
+$P_{\max}$                & Motor power cap      & W \\
+HUD                       & Heads-up display     & --- \\
+QSS                       & Quasi-steady-state   & --- \\
+\bottomrule
+\end{tabular}
+
+% ========================================================================
+\section{File index}
+\label{app:files}
+% ========================================================================
+
+\begin{description}[leftmargin=1.6em]
+  \item[\texttt{src/core/vehicles/fsae6dof.h}]
+        Vehicle type; G-G steady equations.
+  \item[\texttt{src/core/chassis/chassis\_car\_6dof\_fsae.hpp}]
+        Force/moment assembly, aero maps, thermal ODE.
+  \item[\texttt{src/core/chassis/axle\_car\_6dof\_fsae.hpp}]
+        $F_z$ network, $\kappa$, EV split, LSD, brakes.
+  \item[\texttt{database/vehicles/fsae/ubco-2026-ev.xlsx}]
+        VD parameter book.
+  \item[\texttt{examples/python/fsae/qss\_lap.py}]
+        Three-pass QSS.
+  \item[\texttt{examples/python/fsae/qss\_channels.py}]
+        HUD reconstruction.
+  \item[\texttt{examples/python/fsae/qss\_job.py}]
+        \texttt{gg\_from\_vehicle}.
+  \item[\texttt{docs/superpowers/specs/2026-08-14-fsae-6dof-design.md}]
+        Locked 6DOF scope.
+\end{description}
+
+\end{document}

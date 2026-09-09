@@ -112,6 +112,14 @@
     <div class="split">
       <div class="card">
         <h2 style="margin:0 0 8px;font-size:15px">Car information</h2>
+        <h3 style="margin:0 0 6px;font-size:13px;color:var(--muted);font-weight:650">Results</h3>
+        <div class="fields" style="max-height:none;margin-bottom:12px">
+          <table id="metrics-table">
+            <thead><tr><th>Description</th><th>Value</th><th>Unit</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <h3 style="margin:0 0 6px;font-size:13px;color:var(--muted);font-weight:650">Setup</h3>
         <div class="fields">
           <table id="car-table">
             <thead><tr><th>Category</th><th>Description</th><th>Value</th><th>Unit</th></tr></thead>
@@ -373,6 +381,66 @@ function renderCar(fields) {
   }
 }
 
+function firstCrossingTime(v, t, targetMps) {
+  if (!v || !t || v.length < 2 || v[0] >= targetMps) return null;
+  for (let i = 1; i < v.length; i++) {
+    if (v[i] < targetMps) continue;
+    const span = v[i] - v[i - 1];
+    const u = Math.abs(span) < 1e-12 ? 0 : (targetMps - v[i - 1]) / span;
+    const uu = Math.max(0, Math.min(1, u));
+    return (t[i - 1] + uu * (t[i] - t[i - 1])) - t[0];
+  }
+  return null;
+}
+
+function metricsFromMatlab(m) {
+  const v = (m && m.v) || [];
+  const t = (m && m.time) || [];
+  const s = (m && m.s) || [];
+  const n = Math.min(v.length, t.length, s.length);
+  if (n < 1) return {};
+  let vmax = v[0], idx = 0;
+  for (let i = 1; i < n; i++) if (v[i] > vmax) { vmax = v[i]; idx = i; }
+  return {
+    max_speed_kmh: vmax * 3.6,
+    time_to_max_s: t[idx] - t[0],
+    distance_to_max_m: s[idx] - s[0],
+    time_0_60_s: firstCrossingTime(v.slice(0, n), t.slice(0, n), 60 / 3.6),
+    time_0_100_s: firstCrossingTime(v.slice(0, n), t.slice(0, n), 100 / 3.6),
+  };
+}
+
+function fmtMetric(val, digits) {
+  if (val == null || Number.isNaN(Number(val))) return '—';
+  return Number(val).toFixed(digits);
+}
+
+function renderMetrics(entry) {
+  const stored = entry.metrics || {};
+  const computed = metricsFromMatlab(entry.matlab || {});
+  const m = {
+    max_speed_kmh: stored.max_speed_kmh != null ? stored.max_speed_kmh : computed.max_speed_kmh,
+    time_to_max_s: stored.time_to_max_s != null ? stored.time_to_max_s : computed.time_to_max_s,
+    distance_to_max_m: stored.distance_to_max_m != null ? stored.distance_to_max_m : computed.distance_to_max_m,
+    time_0_60_s: stored.time_0_60_s != null ? stored.time_0_60_s : computed.time_0_60_s,
+    time_0_100_s: stored.time_0_100_s != null ? stored.time_0_100_s : computed.time_0_100_s,
+  };
+  const rows = [
+    ['Max speed', fmtMetric(m.max_speed_kmh, 1), 'km/h'],
+    ['Time to max speed', fmtMetric(m.time_to_max_s, 3), 's'],
+    ['Distance to max speed', fmtMetric(m.distance_to_max_m, 1), 'm'],
+    ['0–60 km/h', fmtMetric(m.time_0_60_s, 3), 's'],
+    ['0–100 km/h', fmtMetric(m.time_0_100_s, 3), 's'],
+  ];
+  const tb = $('metrics-table').querySelector('tbody');
+  tb.innerHTML = '';
+  for (const [desc, val, unit] of rows) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${desc}</td><td>${val}</td><td>${unit}</td>`;
+    tb.appendChild(tr);
+  }
+}
+
 function lerp(a,b,u){ return a + (b-a)*u; }
 function atTime(t){
   if (!D || !D.time || !D.time.length) return 0;
@@ -529,6 +597,7 @@ function openDetail(id) {
   $('title').textContent = e.name;
   $('subtitle').textContent = (e.vehicle || '') + ' · ' + (e.map || '');
   $('lap').textContent = fmtNum(e.lap_time, 3) + ' s';
+  renderMetrics(e);
   renderCar((e.car || {}).fields || []);
   $('d-ghost').onclick = () => { location.href = 'hud.html?ghost=' + encodeURIComponent(e.id); };
   $('d-load').onclick = () => { location.href = 'studio.html?load=' + encodeURIComponent(e.id); };
