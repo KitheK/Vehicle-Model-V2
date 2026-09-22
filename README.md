@@ -2,7 +2,7 @@
 
 Standalone vehicle-dynamics model for the **UBCO 2026 FSAE EV2**.
 
-This is **not** a GitHub fork. It is the home for the `fsae-6dof` car: setup
+The home for the `fsae-6dof` car: setup
 exploration, numerical G-G diagrams, quasi-steady-state (QSS) laps, and the
 live HUD. The Newton–Euler engine is derived from
 [fastest-lap](https://github.com/juanmanzanero/fastest-lap) (MIT); see
