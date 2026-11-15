@@ -9,20 +9,25 @@ the tires card. Each tire cell updates Fz / P / E every frame.
 
 from __future__ import annotations
 
+import base64
 import json
 import math
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fsae.qss_channels import LapView
 
 ORANGE = "#d95319"
-CYAN = "#00ffff"
+CYAN = "#00aeef"
 MAGENTA = "#ff00ff"
 GREEN = "#00a65a"
 RED = "#e53935"
 BLUE = "#1f77b4"
 NAVY = "#0b1f4a"
+EV1_BODY = "#1a1a1a"
+EV1_CYAN = "#00aeef"
+EV1_YELLOW = "#d4ff00"
+EV1_WHITE = "#f4f4f4"
 
 _HERE = Path(__file__).resolve().parent
 _HUD_TEMPLATE = _HERE / "qss_hud.html"
@@ -199,9 +204,8 @@ def _bounds(view: LapView, half: float = 3.5):
 
 
 def _draw_ubco_car(ax, x: float, y: float, yaw: float, delta: float = 0.0, scale: float = 1.0) -> None:
-    """Top-down UBCO FSAE (nose along heading). Matplotlib y-up."""
-    from matplotlib.patches import FancyBboxPatch, Rectangle, Circle, Polygon
-    import matplotlib.pyplot as plt  # noqa: F401
+    """Top-down UBCO EV1 silhouette (nose along heading). Matplotlib y-up."""
+    from matplotlib.patches import Polygon
 
     c, s = math.cos(yaw), math.sin(yaw)
 
@@ -222,22 +226,37 @@ def _draw_ubco_car(ax, x: float, y: float, yaw: float, delta: float = 0.0, scale
         for dx, dy in ((-0.28, -0.11), (0.28, -0.11), (0.28, 0.11), (-0.28, 0.11)):
             corners.append((x + scale * ((tx + dx) * cs - (ty + dy) * ss), y + scale * ((tx + dx) * ss + (ty + dy) * cs)))
         ax.add_patch(Polygon(corners, closed=True, facecolor="#111", edgecolor="none", zorder=6))
-    poly([(-0.85, -0.62), (1.55, -0.55), (1.55, 0.55), (-0.85, 0.62)], facecolor="#1a1a1a", zorder=5)
-    poly([(-0.15, -0.48), (1.05, -0.50), (1.20, -0.28), (0.15, -0.22)], facecolor=NAVY, zorder=5)
-    poly([(-0.15, 0.48), (1.05, 0.50), (1.20, 0.28), (0.15, 0.22)], facecolor=NAVY, zorder=5)
-    poly([(1.10, -0.22), (2.35, -0.09), (2.55, 0.0), (2.35, 0.09), (1.10, 0.22)], facecolor="#f4f4f4", zorder=5)
-    poly([(-1.05, -0.55), (-0.87, -0.55), (-0.87, 0.55), (-1.05, 0.55)], facecolor=NAVY, zorder=5)
-    poly([(2.28, -0.62), (2.42, -0.62), (2.42, 0.62), (2.28, 0.62)], facecolor=NAVY, zorder=5)
+    poly([(-0.85, -0.62), (1.55, -0.55), (1.55, 0.55), (-0.85, 0.62)], facecolor=EV1_BODY, zorder=5)
+    poly([(-0.15, -0.48), (1.05, -0.50), (1.20, -0.28), (0.15, -0.22)], facecolor=EV1_CYAN, zorder=5)
+    poly([(-0.15, 0.48), (1.05, 0.50), (1.20, 0.28), (0.15, 0.22)], facecolor=EV1_CYAN, zorder=5)
+    poly([(1.10, -0.22), (2.35, -0.09), (2.55, 0.0), (2.35, 0.09), (1.10, 0.22)], facecolor=EV1_BODY, zorder=5)
+    poly([(-1.05, -0.55), (-0.87, -0.55), (-0.87, 0.55), (-1.05, 0.55)], facecolor=EV1_BODY, zorder=5)
+    poly([(-1.08, -0.58), (-1.04, -0.58), (-1.04, 0.58), (-1.08, 0.58)], facecolor=EV1_YELLOW, zorder=6)
+    poly([(2.28, -0.62), (2.42, -0.62), (2.42, 0.62), (2.28, 0.62)], facecolor=EV1_BODY, zorder=5)
+    poly([(2.40, -0.64), (2.44, -0.64), (2.44, 0.64), (2.40, 0.64)], facecolor=EV1_YELLOW, zorder=6)
     nx, ny = wpt(1.85, 0.0)
-    ax.text(nx, ny, "1", color=NAVY, ha="center", va="center", fontsize=7 * scale, fontweight="bold", zorder=7)
+    ax.text(nx, ny, "252", color=EV1_WHITE, ha="center", va="center", fontsize=6 * scale, fontweight="bold", zorder=7)
 
 
-def plot_hud_frame(view: LapView, path: str | Path, index: Optional[int] = None, cam_height: float = 80.0) -> Path:
+def plot_hud_frame(
+    view: LapView,
+    path: str | Path,
+    index: Optional[int] = None,
+    cam_height: float = 80.0,
+    ground: Optional[dict] = None,
+    circuits: Optional[list[dict]] = None,
+    track_dir: Optional[str | Path] = None,
+) -> Path:
     """Static frame of the dark HUD: asphalt follow-cam plus side cards."""
     plt = _setup_mpl()
     from matplotlib.patches import Polygon, Circle, Rectangle, FancyBboxPatch
     from matplotlib.collections import LineCollection
     import numpy as np
+    from matplotlib.image import imread
+    import io
+
+    if track_dir is not None and ground is None and circuits is None:
+        ground, circuits = load_track_ground(track_dir)
 
     n = len(view.s)
     i = n // 3 if index is None else max(0, min(index, n - 1))
@@ -265,8 +284,37 @@ def plot_hud_frame(view: LapView, path: str | Path, index: Optional[int] = None,
     cx, cy = view.x[i], view.y[i]
     yaw = _heading(view, i)
     xl, yl, xr, yr = _bounds(view, 3.5)
+
+    if ground and ground.get("image"):
+        raw = ground["image"]
+        if raw.startswith("data:image"):
+            b64 = raw.split(",", 1)[1]
+            img = imread(io.BytesIO(base64.b64decode(b64)), format="png")
+        else:
+            img = imread(raw)
+        ax.imshow(
+            img,
+            extent=[ground["x0"], ground["x1"], ground["y0"], ground["y1"]],
+            origin="upper",
+            aspect="equal",
+            alpha=float(ground.get("opacity", 0.92)),
+            zorder=0,
+            interpolation="bilinear",
+        )
+        asphalt_face = (0.05, 0.07, 0.09, 0.42)
+    else:
+        asphalt_face = "#0d1117"
+
     asphalt = list(zip(xl, yl)) + list(zip(reversed(xr), reversed(yr)))
-    ax.add_patch(Polygon(asphalt, closed=True, facecolor="#0d1117", edgecolor="none", zorder=1))
+    ax.add_patch(Polygon(asphalt, closed=True, facecolor=asphalt_face, edgecolor="none", zorder=1))
+    if circuits:
+        for c in circuits:
+            pts = c.get("points") or []
+            if len(pts) < 2:
+                continue
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            ax.plot(xs, ys, color=c.get("color") or EV1_YELLOW, lw=1.2, alpha=float(c.get("opacity", 0.9)), zorder=2)
     ax.plot(view.x, view.y, color="white", lw=0.8, ls=(0, (4, 4)), zorder=2)
 
     i0 = max(0, i - 220)
@@ -395,9 +443,264 @@ def _round_list(values, ndigits: int = 5):
     return [round(float(v), ndigits) for v in values]
 
 
-def _payload(view: LapView, cam_height: float = 80.0, half_width: float = 3.5) -> dict:
-    xl, yl, xr, yr = _bounds(view, half_width)
+# Same as MAPCORNERS in fsae-ev-endurance-map/data.js (lat, lon).
+DEFAULT_MAP_CORNERS = {
+    "tl": [42.0702476, -84.2359031],
+    "tr": [42.0631343, -84.2382035],
+    "bl": [42.0704515, -84.2370469],
+}
+DEFAULT_MAP_CENTER = [42.0668, -84.2392]
+DEFAULT_MAP_ZOOM = 16.5
+
+
+def _line_coords_from_geojson(data: dict) -> list[list[float]]:
+    """Return [[lon, lat], ...] from a FeatureCollection or Feature LineString."""
+    feats = data.get("features")
+    if isinstance(feats, list) and feats:
+        geom = feats[0].get("geometry") or {}
+    else:
+        geom = data.get("geometry") or {}
+    if geom.get("type") != "LineString":
+        return []
+    coords = geom.get("coordinates") or []
+    out: list[list[float]] = []
+    for c in coords:
+        if not isinstance(c, (list, tuple)) or len(c) < 2:
+            continue
+        out.append([float(c[0]), float(c[1])])
+    return out
+
+
+def resolve_official_line_path(track_dir: str | Path | None = None) -> Optional[Path]:
+    """Prefer track-folder geojson; fall back to the sibling endurance-map project."""
+    candidates: list[Path] = []
+    if track_dir is not None:
+        td = Path(track_dir)
+        candidates.append(td / "official_line.geojson")
+    # Vehicle-Model-V2/examples/python/fsae → …/Patricks day map/fsae-ev-endurance-map
+    here = Path(__file__).resolve()
+    candidates.append(
+        here.parents[4] / "fsae-ev-endurance-map" / "official_line.geojson"
+    )
+    candidates.append(here.parents[3] / "fsae-ev-endurance-map" / "official_line.geojson")
+    for p in candidates:
+        if p.is_file():
+            return p
+    return None
+
+
+def resolve_track_xlsx(track_dir: str | Path | None = None) -> Optional[Path]:
+    """Find the map workbook in a track folder (*.xlsx with a Shape sheet preferred)."""
+    if track_dir is None:
+        return None
+    td = Path(track_dir)
+    if td.is_file() and td.suffix.lower() == ".xlsx":
+        return td
+    if not td.is_dir():
+        return None
+    named = td / f"{td.name}.xlsx"
+    if named.is_file():
+        return named
+    xlsxs = sorted(td.glob("*.xlsx"))
+    return xlsxs[0] if xlsxs else None
+
+
+def load_geo_map(
+    track_dir: str | Path | None = None,
+    location: str | None = None,
+) -> Optional[dict]:
+    """WGS84 official line + named sites for the Leaflet HUD.
+
+    Prefers ``OfficialLine`` / ``Locations`` sheets inside the track ``.xlsx``;
+    falls back to ``official_line.geojson`` + default MIS corners.
+    """
+    from fsae.opentrack_xlsx import TrackLocation, project_official_line, read_track_georef
+
+    xlsx = resolve_track_xlsx(track_dir)
+    line: list[list[float]] = []
+    locations: list[dict] = []
+    corners = dict(DEFAULT_MAP_CORNERS)
+    origin: TrackLocation | None = None
+
+    if xlsx is not None and xlsx.is_file():
+        geo = read_track_georef(xlsx)
+        if geo is not None:
+            line = list(geo.official_line)
+            locations = [loc.as_dict() for loc in geo.locations]
+            origin = geo.original()
+            if geo.map_corners:
+                corners.update(geo.map_corners)
+
+    if len(line) < 2:
+        path = resolve_official_line_path(track_dir)
+        if path is None:
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        line = _line_coords_from_geojson(data)
+        if len(line) < 2:
+            return None
+
+    if track_dir is not None:
+        corners_path = Path(track_dir) / "map_corners.json"
+        if corners_path.is_file():
+            try:
+                raw = json.loads(corners_path.read_text(encoding="utf-8"))
+                for key in ("tl", "tr", "bl"):
+                    if key in raw and len(raw[key]) >= 2:
+                        corners[key] = [float(raw[key][0]), float(raw[key][1])]
+            except Exception:
+                pass
+
+    if not locations:
+        # Synthesize an original site from the first vertex / default center.
+        lat0 = float(line[0][1])
+        lon0 = float(line[0][0])
+        locations = [
+            {
+                "name": "Original",
+                "role": "original",
+                "lat": lat0,
+                "lon": lon0,
+                "bearingDeg": 0.0,
+            }
+        ]
+        origin = TrackLocation(name="Original", role="original", lat=lat0, lon=lon0)
+
+    if origin is None:
+        origin = TrackLocation(
+            name=str(locations[0]["name"]),
+            role=str(locations[0].get("role") or "original"),
+            lat=float(locations[0]["lat"]),
+            lon=float(locations[0]["lon"]),
+            bearing_deg=float(locations[0].get("bearingDeg") or 0.0),
+        )
+
+    active_name = location or origin.name
+    target = origin
+    for loc in locations:
+        if str(loc["name"]).strip().lower() == str(active_name).strip().lower():
+            target = TrackLocation(
+                name=str(loc["name"]),
+                role=str(loc.get("role") or "alternate"),
+                lat=float(loc["lat"]),
+                lon=float(loc["lon"]),
+                bearing_deg=float(loc.get("bearingDeg") or 0.0),
+            )
+            active_name = target.name
+            break
+
+    active_line = project_official_line(line, origin, target, scale=1.0)
+    from fsae.famous_maps import load_famous_maps
+
+    famous = load_famous_maps()
+    # Ensure the workbook EV line is first / present as the default course.
+    if not any(m.get("id") == "ev_2026" for m in famous) and len(line) >= 2:
+        famous.insert(
+            0,
+            {
+                "id": "ev_2026",
+                "name": "FSAE EV 2026 Endurance",
+                "officialLine": line,
+                "origin": {"lat": float(line[0][1]), "lon": float(line[0][0])},
+            },
+        )
     return {
+        "officialLine": active_line,
+        "officialLineOriginal": line,
+        "mapCorners": corners,
+        "mapCenter": [target.lat, target.lon],
+        "mapZoom": float(DEFAULT_MAP_ZOOM),
+        "followZoom": 18.0,
+        "locations": locations,
+        "activeLocation": active_name,
+        "famousMaps": [
+            {
+                "id": m["id"],
+                "name": m["name"],
+                "officialLine": m["officialLine"],
+                "origin": m["origin"],
+                "lengthHint": m.get("lengthHint"),
+            }
+            for m in famous
+        ],
+        "activeMap": "ev_2026",
+        "mapScale": 1.0,
+    }
+
+
+def load_track_ground(track_dir: str | Path) -> tuple[Optional[dict], list[dict]]:
+    """Load ground_meta / ground.png / overlays.json from a track folder.
+
+    Offline PNG bake only — the live HUD prefers ``load_geo_map`` (Leaflet + Esri).
+    """
+    track_dir = Path(track_dir)
+    ground: Optional[dict] = None
+    circuits: list[dict] = []
+
+    meta_path = track_dir / "ground_meta.json"
+    png_path = track_dir / "ground.png"
+    geo_path = track_dir / "georef.json"
+    north_rad = None
+    if geo_path.is_file():
+        try:
+            from fsae.hud_georef import mesh_north_angle_rad
+
+            north_rad = float(mesh_north_angle_rad(json.loads(geo_path.read_text(encoding="utf-8"))))
+        except Exception:
+            north_rad = None
+
+    if meta_path.is_file():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        ground = {
+            "x0": float(meta["x0"]),
+            "y0": float(meta["y0"]),
+            "x1": float(meta["x1"]),
+            "y1": float(meta["y1"]),
+            "opacity": float(meta.get("opacity", 0.92)),
+        }
+        if north_rad is not None:
+            ground["northRad"] = north_rad
+        elif meta.get("northRad") is not None:
+            ground["northRad"] = float(meta["northRad"])
+        img_name = meta.get("image")
+        img_path = track_dir / img_name if img_name else png_path
+        if img_path.is_file():
+            b64 = base64.b64encode(img_path.read_bytes()).decode("ascii")
+            ground["image"] = f"data:image/png;base64,{b64}"
+        else:
+            ground = None
+    elif png_path.is_file() and geo_path.is_file():
+        geo = json.loads(geo_path.read_text(encoding="utf-8"))
+        bb = geo["bbox_mesh_m"]
+        b64 = base64.b64encode(png_path.read_bytes()).decode("ascii")
+        ground = {
+            "image": f"data:image/png;base64,{b64}",
+            "x0": float(bb["x0"]),
+            "y0": float(bb["y0"]),
+            "x1": float(bb["x1"]),
+            "y1": float(bb["y1"]),
+            "opacity": 0.92,
+        }
+        if north_rad is not None:
+            ground["northRad"] = north_rad
+
+    overlays_path = track_dir / "overlays.json"
+    if overlays_path.is_file():
+        data = json.loads(overlays_path.read_text(encoding="utf-8"))
+        circuits = list(data.get("circuits") or [])
+    return ground, circuits
+
+
+def _payload(
+    view: LapView,
+    cam_height: float = 80.0,
+    half_width: float = 3.5,
+    ground: Optional[dict] = None,
+    circuits: Optional[list[dict]] = None,
+    geo_map: Optional[dict] = None,
+) -> dict:
+    xl, yl, xr, yr = _bounds(view, half_width)
+    payload: dict[str, Any] = {
         "vehicle": view.vehicle_name,
         "track": view.track_name,
         "lapTime": round(view.lap_time, 4),
@@ -447,6 +750,30 @@ def _payload(view: LapView, cam_height: float = 80.0, half_width: float = 3.5) -
         "envSpeed": round(view.env_speed, 3),
         "fromRest": bool(getattr(view, "from_rest", False)),
     }
+    if geo_map and geo_map.get("officialLine"):
+        payload["officialLine"] = geo_map["officialLine"]
+        payload["officialLineOriginal"] = geo_map.get("officialLineOriginal") or geo_map["officialLine"]
+        payload["mapCorners"] = geo_map.get("mapCorners") or dict(DEFAULT_MAP_CORNERS)
+        payload["mapCenter"] = list(geo_map.get("mapCenter") or DEFAULT_MAP_CENTER)
+        payload["mapZoom"] = float(geo_map.get("mapZoom") or DEFAULT_MAP_ZOOM)
+        payload["followZoom"] = float(geo_map.get("followZoom") or 18.0)
+        if geo_map.get("locations"):
+            payload["locations"] = geo_map["locations"]
+        if geo_map.get("activeLocation"):
+            payload["activeLocation"] = geo_map["activeLocation"]
+        if geo_map.get("famousMaps"):
+            payload["famousMaps"] = geo_map["famousMaps"]
+        if geo_map.get("activeMap"):
+            payload["activeMap"] = geo_map["activeMap"]
+        payload["mapScale"] = float(geo_map.get("mapScale") or 1.0)
+    elif ground and ground.get("image"):
+        # Offline mesh-frame PNG only when no WGS84 official line is available.
+        payload["ground"] = ground
+        if circuits:
+            payload["circuits"] = circuits
+    elif circuits:
+        payload["circuits"] = circuits
+    return payload
 
 
 def extract_payload_json(html: str) -> str | None:
@@ -505,14 +832,52 @@ def _write_html(template: Path, payload: dict, path: str | Path) -> Path:
     return path
 
 
-def write_hud_html(view: LapView, path: str | Path, cam_height: float = 80.0, half_width: float = 3.5) -> Path:
-    """Self-contained dark HUD with world-aligned asphalt follow-cam and UBCO 3D car."""
-    return _write_html(_HUD_TEMPLATE, _payload(view, cam_height, half_width), path)
+def write_hud_html(
+    view: LapView,
+    path: str | Path,
+    cam_height: float = 80.0,
+    half_width: float = 3.5,
+    ground: Optional[dict] = None,
+    circuits: Optional[list[dict]] = None,
+    track_dir: Optional[str | Path] = None,
+    geo_map: Optional[dict] = None,
+) -> Path:
+    """Self-contained dark HUD: Leaflet+Esri when officialLine is present, else mesh canvas."""
+    if geo_map is None:
+        geo_map = load_geo_map(track_dir)
+    if track_dir is not None and geo_map is None and ground is None and circuits is None:
+        ground, circuits = load_track_ground(track_dir)
+    return _write_html(
+        _HUD_TEMPLATE,
+        _payload(
+            view,
+            cam_height,
+            half_width,
+            ground=None if geo_map else ground,
+            circuits=None if geo_map else circuits,
+            geo_map=geo_map,
+        ),
+        path,
+    )
 
 
-def write_results_html(view: LapView, path: str | Path, cam_height: float = 80.0, half_width: float = 3.5) -> Path:
+def write_results_html(
+    view: LapView,
+    path: str | Path,
+    cam_height: float = 80.0,
+    half_width: float = 3.5,
+    ground: Optional[dict] = None,
+    circuits: Optional[list[dict]] = None,
+    track_dir: Optional[str | Path] = None,
+) -> Path:
     """OpenLAP MATLAB-style page: stacked channels, GGV scatter, track map."""
-    return _write_html(_RESULTS_TEMPLATE, _payload(view, cam_height, half_width), path)
+    if track_dir is not None and ground is None and circuits is None:
+        ground, circuits = load_track_ground(track_dir)
+    return _write_html(
+        _RESULTS_TEMPLATE,
+        _payload(view, cam_height, half_width, ground=ground, circuits=circuits),
+        path,
+    )
 
 
 def write_summary(view: LapView, path: str | Path) -> Path:

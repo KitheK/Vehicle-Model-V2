@@ -12,9 +12,15 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent))
 
 from fsae.opentrack_xlsx import (  # noqa: E402
+    TrackGeoref,
+    TrackLocation,
+    list_track_locations,
     mesh_opentrack,
     mesh_to_discrete_xml,
+    project_official_line,
+    read_official_line,
     write_fsae_skidpad_xlsx,
+    write_map_xlsx,
 )
 from fsae.qss_lap import GGTable, qss_lap  # noqa: E402
 
@@ -79,6 +85,69 @@ class TestOpenTrackXlsx(unittest.TestCase):
             self.assertLess(result.lap_time, 20.0)
             self.assertEqual(len(result.v), len(mesh.s))
             self.assertTrue(all(v > 1.0 for v in result.v))
+
+    def test_xlsx_locations_are_queryable_and_projectable(self) -> None:
+        line = [[-84.24, 42.07], [-84.23, 42.07], [-84.23, 42.06], [-84.24, 42.07]]
+        origin = TrackLocation("Home", "original", 42.07, -84.24, 0.0)
+        alt = TrackLocation("Away", "alternate", 49.89, -119.50, 0.0)
+        moved = project_official_line(line, origin, alt)
+        self.assertEqual(len(moved), len(line))
+        self.assertAlmostEqual(moved[0][1], alt.lat, places=5)
+        self.assertAlmostEqual(moved[0][0], alt.lon, places=5)
+        with tempfile.TemporaryDirectory() as tmp:
+            xlsx = Path(tmp) / "track.xlsx"
+            write_map_xlsx(
+                xlsx,
+                {"name": "Test", "country": "CA", "city": "Kelowna"},
+                [("Straight", 10.0, 0.0), ("Left", 20.0, 15.0)],
+                georef=TrackGeoref(
+                    official_line=line,
+                    locations=[origin, alt],
+                    map_corners={"tl": [42.08, -84.22], "tr": [42.05, -84.22], "bl": [42.08, -84.26]},
+                ),
+            )
+            self.assertEqual(len(read_official_line(xlsx)), 4)
+            names = [loc.name for loc in list_track_locations(xlsx)]
+            self.assertEqual(names, ["Home", "Away"])
+
+    def test_mesh_scale_halves_length_and_doubles_kappa(self) -> None:
+        """Uniform map scale must shrink length/radii and raise curvature for QSS."""
+        with tempfile.TemporaryDirectory() as tmp:
+            xlsx = Path(tmp) / "skidpad.xlsx"
+            write_fsae_skidpad_xlsx(xlsx)
+            full = mesh_opentrack(xlsx, mesh_size=1.0, half_width=1.5, scale=1.0)
+            half = mesh_opentrack(xlsx, mesh_size=1.0, half_width=1.5, scale=0.5)
+            self.assertAlmostEqual(half.length, full.length * 0.5, places=4)
+            self.assertAlmostEqual(half.nl[0], 0.75, places=6)
+            # Mean |κ| ~ doubles (peak can include closure spikes).
+            mean_full = sum(abs(k) for k in full.kappa) / len(full.kappa)
+            mean_half = sum(abs(k) for k in half.kappa) / len(half.kappa)
+            self.assertAlmostEqual(mean_half, mean_full * 2.0, delta=0.02)
+
+    def test_ev2026_mesh_matches_map_csv(self) -> None:
+        """Constant-κ Shape rebuild stays congruent with the published map CSV."""
+        import numpy as np
+        from fsae.hud_georef import align_map_to_mesh, load_centerline_csv
+
+        root = Path(__file__).resolve().parents[4]
+        xlsx = (
+            Path(__file__).resolve().parents[3]
+            / "database/tracks/fsae_ev_2026_endurance/fsae_ev_2026_endurance.xlsx"
+        )
+        csv_path = root / "fsae-ev-endurance-map" / "official_ev_2026_endurance_1m.csv"
+        if not xlsx.is_file():
+            self.skipTest("fsae_ev_2026_endurance.xlsx not in the tree")
+        if not csv_path.is_file():
+            alt = xlsx.parent / "official_ev_2026_endurance_1m.csv"
+            if alt.is_file():
+                csv_path = alt
+            else:
+                self.skipTest("official_ev_2026_endurance_1m.csv not found")
+        mesh = mesh_opentrack(xlsx, mesh_size=1.0)
+        s, cx, cy = load_centerline_csv(csv_path)
+        align = align_map_to_mesh(cx, cy, np.asarray(mesh.x), np.asarray(mesh.y))
+        self.assertLess(float(align["rms_m"]), 2.0)
+        self.assertAlmostEqual(mesh.length, float(s[-1]), delta=3.0)
 
     def test_qss_lap_from_rest_starts_near_zero(self) -> None:
         from fsae.opentrack_xlsx import OpenTrackInfo, write_map_xlsx

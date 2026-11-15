@@ -24,7 +24,13 @@ _ROOT = _HERE.parents[2]
 if str(_HERE.parent) not in sys.path:
     sys.path.insert(0, str(_HERE.parent))
 
-from fsae.opentrack_xlsx import write_map_xlsx  # noqa: E402
+from fsae.opentrack_xlsx import (  # noqa: E402
+    TrackGeoref,
+    TrackLocation,
+    read_track_georef,
+    stamp_georef_into_xlsx,
+    write_map_xlsx,
+)
 from fsae.qss_job import DEFAULT_CAR, DEFAULT_MAP, defaults_payload, run_qss_job  # noqa: E402
 from fsae.qss_ranking import (  # noqa: E402
     build_record,
@@ -108,22 +114,28 @@ class StudioHandler(SimpleHTTPRequestHandler):
         self.wfile.write(raw)
 
     def _send_bytes(self, data: bytes, content_type: str, code: int = 200) -> None:
-        self.send_response(code)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            return
 
     def _send_file(self, path: Path, content_type: str, cache: str = "no-store") -> None:
         size = path.stat().st_size
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(size))
-        self.send_header("Cache-Control", cache)
-        self.end_headers()
-        with path.open("rb") as fh:
-            shutil.copyfileobj(fh, self.wfile, length=1024 * 1024)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(size))
+            self.send_header("Cache-Control", cache)
+            self.end_headers()
+            with path.open("rb") as fh:
+                shutil.copyfileobj(fh, self.wfile, length=1024 * 1024)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            return
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
@@ -175,10 +187,10 @@ class StudioHandler(SimpleHTTPRequestHandler):
         if path == "/car.glb":
             for cand in (
                 _ROOT / "public" / "car.glb",
-                _HERE / "models" / "formula_student.glb",
                 _HERE / "car.glb",
+                _HERE / "models" / "ubco_ev1" / "car.glb",
+                _HERE / "models" / "formula_student.glb",
                 self.out_dir / "car.glb",
-                Path(r"c:\Users\USER\Downloads\car model 3d\formula_student.glb"),
             ):
                 if cand.is_file():
                     self._send_file(cand, "model/gltf-binary", cache="public, max-age=3600")
@@ -314,6 +326,25 @@ class StudioHandler(SimpleHTTPRequestHandler):
         except ValueError as exc:
             self._send_json({"error": str(exc)}, 413)
             return
+        if parsed.path == "/api/export-map":
+            try:
+                payload = json.loads(body.decode("utf-8"))
+                data, filename = self._export_corrected_map(payload)
+                self.send_response(200)
+                self.send_header(
+                    "Content-Type",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, 400)
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 400)
+            return
         if parsed.path == "/api/ranking":
             try:
                 payload = json.loads(body.decode("utf-8"))
@@ -358,6 +389,65 @@ class StudioHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": str(exc)}, 400)
             return
         self._send_json(result)
+
+    # Workbook-backed map ids only — famous geojson courses have no Shape xlsx.
+    _EXPORT_MAP_XLSX: Dict[str, Path] = {
+        "ev_2026": _ROOT / "database/tracks/fsae_ev_2026_endurance/fsae_ev_2026_endurance.xlsx",
+        "fsae_2019": DEFAULT_MAP,
+        "2019_endurance": DEFAULT_MAP,
+    }
+
+    def _export_corrected_map(self, payload: Dict[str, Any]) -> Tuple[bytes, str]:
+        """Clone the matching Shape workbook and stamp projected OfficialLine + Location."""
+        line_raw = payload.get("official_line") or payload.get("officialLine") or []
+        if not isinstance(line_raw, list) or len(line_raw) < 2:
+            raise ValueError("official_line needs at least 2 [lon, lat] points")
+        line: list[list[float]] = []
+        for p in line_raw:
+            if not isinstance(p, (list, tuple)) or len(p) < 2:
+                raise ValueError("each official_line point must be [lon, lat]")
+            line.append([float(p[0]), float(p[1])])
+        loc_raw = payload.get("location") or {}
+        name = str(loc_raw.get("name") or "Corrected")
+        map_id = str(payload.get("map_id") or payload.get("mapId") or "ev_2026").strip().lower()
+        src = self._EXPORT_MAP_XLSX.get(map_id)
+        if src is None or not Path(src).is_file():
+            raise ValueError(
+                f"xlsx export only for workbook maps {sorted(self._EXPORT_MAP_XLSX)}; "
+                f"got {map_id!r} — use geojson download"
+            )
+        # Baked absolute WGS84 line: origin = first vertex, bearing 0.
+        origin = TrackLocation(
+            name=name,
+            role="original",
+            lat=float(line[0][1]),
+            lon=float(line[0][0]),
+            bearing_deg=0.0,
+        )
+        tmp = Path(tempfile.mkdtemp(prefix="qss_export_map_"))
+        try:
+            dest = tmp / "map_corrected.xlsx"
+            shutil.copy2(src, dest)
+            prev = read_track_georef(dest)
+            others: list[TrackLocation] = []
+            corners = {}
+            if prev is not None:
+                corners = dict(prev.map_corners or {})
+                for loc in prev.locations:
+                    if loc.role.lower() == "original":
+                        continue
+                    if loc.name.strip().lower() == name.strip().lower():
+                        continue
+                    others.append(loc)
+            georef = TrackGeoref(
+                official_line=line,
+                locations=[origin] + others,
+                map_corners=corners,
+            )
+            stamp_georef_into_xlsx(dest, georef)
+            return dest.read_bytes(), "map_corrected.xlsx"
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def _preview(self, fields: Dict[str, str], files: Dict[str, Tuple[str, bytes]]) -> Dict[str, Any]:
         blob_pair = files.get("file") or files.get("map") or files.get("car") or files.get("driver")
@@ -435,7 +525,10 @@ class StudioHandler(SimpleHTTPRequestHandler):
             from_rest = _flag(fields, "from_rest", False)
             v_cap = float(fields.get("v_cap") or 40.0)
             cam_height = float(fields.get("cam_height") or 80.0)
-            sys.stderr.write("QSS run from_rest=%s v_cap=%s\n" % (from_rest, v_cap))
+            map_scale = float(fields.get("map_scale") or 1.0)
+            sys.stderr.write(
+                "QSS run from_rest=%s v_cap=%s map_scale=%s\n" % (from_rest, v_cap, map_scale)
+            )
             self.out_dir.mkdir(parents=True, exist_ok=True)
             return run_qss_job(
                 car_xlsx,
@@ -446,6 +539,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 v_cap=v_cap,
                 cam_height=cam_height,
                 from_rest=from_rest,
+                map_scale=map_scale,
                 plots=False,
             )
         finally:

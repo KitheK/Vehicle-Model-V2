@@ -15,7 +15,13 @@ sys.path.insert(0, str(_HERE.parent))
 from fsae.opentrack_xlsx import mesh_opentrack, write_fsae_skidpad_xlsx  # noqa: E402
 from fsae.qss_channels import bicycle_steer, reconstruct_lap  # noqa: E402
 from fsae.qss_lap import GGTable, qss_lap  # noqa: E402
-from fsae.qss_viz import plot_hud_frame, plot_openlap_results, write_hud_html, write_results_html  # noqa: E402
+from fsae.qss_viz import (  # noqa: E402
+    load_geo_map,
+    plot_hud_frame,
+    plot_openlap_results,
+    write_hud_html,
+    write_results_html,
+)
 
 
 class _HudStructureParser(HTMLParser):
@@ -109,7 +115,9 @@ class TestQssViz(unittest.TestCase):
             self.assertIn('"fromRest":false', text)
             self.assertNotIn("let trackCar = buildUbcoCar()", text)
             self.assertNotIn("keeping procedural car", text)
-            self.assertIn("buildUbcoCar", text)
+            self.assertNotIn("function buildUbcoCar(", text)
+            self.assertIn("zoom-in", text)
+            self.assertIn("setCamHeight", text)
             self.assertIn("D.xl", text)
             self.assertIn("grid-template-columns: 1fr 380px", text)
             self.assertIn("overflow-y:auto", text)
@@ -127,13 +135,16 @@ class TestQssViz(unittest.TestCase):
             self.assertIn("addEventListener('change'", text)
             self.assertIn("setLineDash([1.6, 1.4])", text)
             self.assertIn("translate(w/2, h/2)", text)
+            self.assertIn("leaflet@", text)
+            self.assertIn("USE_GEO", text)
+            self.assertIn("initLeafletStage", text)
+            self.assertIn("CAR_MIN_PX", text)
             self.assertNotIn("Math.PI/2 - yaw", text)
             self.assertIn(str(round(view.lap_time, 3)).split(".")[0], text)
             self.assertIn("results.html", text)
             self.assertIn("studio.html", text)
             self.assertIn("ranking.html", text)
             self.assertIn("GLTFLoader", text)
-            self.assertIn("buildUbcoCar", text)
             self.assertIn("loadCarModel", text)
             self.assertIn("MODEL_PATH", text)
             self.assertIn("car.glb", text)
@@ -144,6 +155,46 @@ class TestQssViz(unittest.TestCase):
             self.assertIn("GGV usage", matlab)
             self.assertIn('"kappa":', matlab)
             self.assertIn("ranking.html", matlab)
+
+    def test_ev2026_hud_payload_has_official_line(self) -> None:
+        track_dir = (
+            Path(__file__).resolve().parents[3]
+            / "database/tracks/fsae_ev_2026_endurance"
+        )
+        xlsx = track_dir / "fsae_ev_2026_endurance.xlsx"
+        if not xlsx.is_file():
+            self.skipTest("fsae_ev_2026_endurance.xlsx not in the tree")
+        geo = load_geo_map(track_dir)
+        self.assertIsNotNone(geo)
+        self.assertGreaterEqual(len(geo["officialLine"]), 2)
+        self.assertIn("tl", geo["mapCorners"])
+        self.assertIn("locations", geo)
+        self.assertGreaterEqual(len(geo["locations"]), 1)
+        ubco = load_geo_map(track_dir, location="UBCO Lot H")
+        if ubco and any(l["name"] == "UBCO Lot H" for l in geo["locations"]):
+            self.assertEqual(ubco["activeLocation"], "UBCO Lot H")
+            self.assertAlmostEqual(ubco["mapCenter"][0], 49.942079, places=4)
+            self.assertAlmostEqual(ubco["mapCenter"][1], -119.392312, places=4)
+        with tempfile.TemporaryDirectory() as tmp:
+            mesh = mesh_opentrack(xlsx, mesh_size=5.0)
+            result = qss_lap(mesh, _table(), v_cap=30.0)
+            view = reconstruct_lap(
+                result, mesh, _table(), vehicle_name="UBCO EV", track_name=mesh.info.name
+            )
+            html = write_hud_html(view, Path(tmp) / "hud.html", track_dir=track_dir)
+            text = html.read_text(encoding="utf-8")
+            self.assertIn('"officialLine":', text)
+            self.assertIn('"mapCorners":', text)
+            self.assertIn('"locations":', text)
+            self.assertIn("site-search", text)
+            self.assertIn("searchAndGo", text)
+            self.assertIn("geocodePlace", text)
+            self.assertIn("famousMaps", text)
+            self.assertIn("course-map", text)
+            self.assertIn("map-scale", text)
+            self.assertIn("selectFamousMap", text)
+            self.assertNotIn('"ground":', text)
+            self.assertIn("World_Imagery", text)
 
     def test_2019_endurance_qss_artifacts(self) -> None:
         xlsx = Path(__file__).resolve().parents[3] / "database/tracks/fsae_2019_endurance/2019_endurance.xlsx"
@@ -161,7 +212,7 @@ class TestQssViz(unittest.TestCase):
             text = html.read_text(encoding="utf-8")
             self.assertIn("2019 Endurance", text)
             self.assertIn("drawUbcoCar", text)
-            self.assertIn("buildUbcoCar", text)
+            self.assertIn("car.glb", text)
             self.assertIn("Tires", text)
             self.assertIn("tire-fl", text)
             self.assertGreater(max(view.s), 1800.0)

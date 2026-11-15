@@ -15,8 +15,15 @@ build/
 docs/build/
 .venv/
 qss_out/
+qss_out_*/
 examples/python/fsae/models/*.glb
 node_modules/
 .wrangler/
+docs/papers/*.aux
+docs/papers/*.bbl
+docs/papers/*.blg
+docs/papers/*.log
+docs/papers/*.out
+docs/papers/*.toc
 
 

@@ -122,7 +122,8 @@ class TestQssStudio(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             track = Path(tmp) / "skidpad.xlsx"
             write_fsae_skidpad_xlsx(track)
-            mesh = mesh_opentrack(track, mesh_size=2.0)
+            # Same mesh_size as run_qss_job (default 1 m) so lap times are comparable.
+            mesh = mesh_opentrack(track, mesh_size=1.0)
             weak = synthetic_gg()
             weak.ax_max = [[0.05, 0.04, 0.03, 0.02, 0.0]]
             result = qss_lap(mesh, weak, v_cap=20.0)
@@ -217,6 +218,31 @@ class TestQssStudio(unittest.TestCase):
             self.assertLess(standing["speed_kmh"]["min"], 4.0)
             self.assertGreater(flying["speed_kmh"]["min"], standing["speed_kmh"]["min"] + 10.0)
             self.assertIn('"fromRest":true', standing["hud_html"])
+
+    def test_export_corrected_map_uses_ev2026_workbook(self) -> None:
+        from fsae.opentrack_xlsx import read_official_line, read_opentrack_info
+        from fsae.qss_server import StudioHandler
+
+        ev = (
+            _HERE.parents[2]
+            / "database/tracks/fsae_ev_2026_endurance/fsae_ev_2026_endurance.xlsx"
+        )
+        if not ev.is_file():
+            self.skipTest("fsae_ev_2026_endurance.xlsx missing")
+        line = [[-123.25, 49.267], [-123.249, 49.268], [-123.248, 49.267]]
+        h = StudioHandler.__new__(StudioHandler)
+        data, name = h._export_corrected_map(
+            {"map_id": "ev_2026", "official_line": line, "location": {"name": "UBC Main Mall"}}
+        )
+        self.assertEqual(name, "map_corrected.xlsx")
+        self.assertGreater(len(data), 1000)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / name
+            path.write_bytes(data)
+            self.assertEqual(read_official_line(path)[0], line[0])
+            self.assertEqual(read_opentrack_info(path).name, read_opentrack_info(ev).name)
+        with self.assertRaises(ValueError):
+            h._export_corrected_map({"map_id": "spa", "official_line": line})
 
 
 if __name__ == "__main__":
