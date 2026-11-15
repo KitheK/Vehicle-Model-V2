@@ -393,8 +393,8 @@ class StudioHandler(SimpleHTTPRequestHandler):
     # Workbook-backed map ids only — famous geojson courses have no Shape xlsx.
     _EXPORT_MAP_XLSX: Dict[str, Path] = {
         "ev_2026": _ROOT / "database/tracks/fsae_ev_2026_endurance/fsae_ev_2026_endurance.xlsx",
-        "fsae_2019": DEFAULT_MAP,
-        "2019_endurance": DEFAULT_MAP,
+        "fsae_2019": _ROOT / "database/tracks/fsae_2019_endurance/2019_endurance.xlsx",
+        "2019_endurance": _ROOT / "database/tracks/fsae_2019_endurance/2019_endurance.xlsx",
     }
 
     def _export_corrected_map(self, payload: Dict[str, Any]) -> Tuple[bytes, str]:
