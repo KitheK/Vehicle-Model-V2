@@ -122,7 +122,8 @@ class TestQssStudio(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             track = Path(tmp) / "skidpad.xlsx"
             write_fsae_skidpad_xlsx(track)
-            mesh = mesh_opentrack(track, mesh_size=2.0)
+            # Same mesh_size as run_qss_job (default 1 m) so lap times are comparable.
+            mesh = mesh_opentrack(track, mesh_size=1.0)
             weak = synthetic_gg()
             weak.ax_max = [[0.05, 0.04, 0.03, 0.02, 0.0]]
             result = qss_lap(mesh, weak, v_cap=20.0)
