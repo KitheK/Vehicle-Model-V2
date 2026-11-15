@@ -135,10 +135,7 @@
       <label style="color:#8b949e;font-size:12px" title="Esri World Imagery">
         <input type="checkbox" id="tog-sat" checked/> Satellite
       </label>
-      <label style="color:#8b949e;font-size:12px" title="Official EV traced line (optional)">
-        <input type="checkbox" id="tog-circuits" checked/> Official line
-      </label>
-      <label style="color:#8b949e;font-size:12px" title="Asphalt ribbon + throttle/brake trail (same as production HUD)">
+      <label style="color:#8b949e;font-size:12px" title="Asphalt ribbon + throttle/brake trail">
         <input type="checkbox" id="tog-asphalt" checked/> Asphalt
       </label>
       <label style="color:#8b949e;font-size:12px" title="Famous / official course geometries">Map
@@ -272,7 +269,7 @@ const CAM_MIN = 25;
 const CAM_MAX = 2000;
 let mapFollow = true;
 let mapCX = D.x[0] || 0, mapCY = D.y[0] || 0;
-let leafMap = null, leafSat = null, leafLine = null, leafCar = null, leafTrailLayer = null;
+let leafMap = null, leafSat = null, leafCar = null, leafTrailLayer = null;
 let leafCarPx = 0;
 let leafZoomSync = false; /* suppress CAM←zoom feedback while we drive zoom from CAM */
 const CAR_MIN_PX = 32;
@@ -928,21 +925,17 @@ function drawUbcoCar(ctx, delta){
 
 const layerOn = {
   sat: true,
-  circuits: !!(document.getElementById('tog-circuits') && document.getElementById('tog-circuits').checked),
   asphalt: !(document.getElementById('tog-asphalt') && !document.getElementById('tog-asphalt').checked),
 };
-['tog-sat','tog-circuits','tog-asphalt'].forEach(id => {
+['tog-sat','tog-asphalt'].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;
-  const key = id === 'tog-sat' ? 'sat' : (id === 'tog-circuits' ? 'circuits' : 'asphalt');
+  const key = id === 'tog-sat' ? 'sat' : 'asphalt';
   el.addEventListener('change', () => {
     layerOn[key] = !!el.checked;
     if (!USE_GEO) return;
     if (key === 'sat' && leafSat){
       if (layerOn.sat) leafSat.addTo(leafMap); else leafMap.removeLayer(leafSat);
-    }
-    if (key === 'circuits' && leafLine){
-      if (layerOn.circuits) leafLine.addTo(leafMap); else leafMap.removeLayer(leafLine);
     }
   });
 });
@@ -1087,7 +1080,6 @@ function refreshProjectedCourse(opts){
   const line = projectLineToSite(target, mapScale);
   GEO_LAP = buildOfficialLap(line);
   D.officialLine = line;
-  if (leafLine) leafLine.setLatLngs(line.map(c => [c[1], c[0]]));
   if (!GEO_LAP) return;
   const p0 = GEO_LAP.atFrac(0);
   if (leafCar) leafCar.setLatLng([p0.lat, p0.lon]);
@@ -1390,7 +1382,7 @@ function refreshSiteSuggestions(){
     if (!FAMOUS_MAPS.length){
       const opt = document.createElement('option');
       opt.value = 'ev_2026';
-      opt.textContent = 'Official line';
+      opt.textContent = 'FSAE EV 2026 Endurance';
       sel.appendChild(opt);
     }
     sel.value = activeMapId;
@@ -1640,9 +1632,6 @@ function initLeafletStage(){
   if (layerOn.sat) leafSat.addTo(leafMap);
   leafTrailLayer = new HudAsphaltLayer();
   leafTrailLayer.addTo(leafMap);
-  const latlngs = GEO_LAP.raw.map(c => [c[1], c[0]]);
-  leafLine = L.polyline(latlngs, {color: '#ff2828', weight: 3, opacity: 0.95});
-  if (layerOn.circuits) leafLine.addTo(leafMap);
   leafCarPx = leafCarIconPx(p0.lat, leafMap.getZoom());
   leafCar = L.marker(startLl, {
     icon: leafCarDivIcon(leafCarPx),
@@ -1749,7 +1738,7 @@ function drawTrack(f){
     ctx.fill();
   }
 
-  if (layerOn.circuits && D.circuits && D.circuits.length){
+  if (D.circuits && D.circuits.length){
     for (const c of D.circuits){
       if (!c.points || c.points.length < 2) continue;
       ctx.save();
