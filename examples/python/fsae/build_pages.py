@@ -62,7 +62,7 @@ def pack_runtime(public: Path) -> Path:
         for src, dest in (
             (DEFAULT_CAR, "app/database/vehicles/fsae/ubco-2026-ev.xlsx"),
             (DEFAULT_CAR.with_suffix(".xml"), "app/database/vehicles/fsae/ubco-2026-ev.xml"),
-            (DEFAULT_MAP, "app/database/tracks/fsae_2019_endurance/2019_endurance.xlsx"),
+            (DEFAULT_MAP, "app/database/tracks/fsae_ev_2026_endurance/fsae_ev_2026_endurance.xlsx"),
         ):
             if src.is_file():
                 zf.write(src, dest)
@@ -81,11 +81,19 @@ def main() -> int:
             plots=False,
         )
         public.mkdir(parents=True, exist_ok=True)
-        for name in ("hud.html", "results.html", "studio.html"):
+        for name in ("hud.html", "results.html", "studio.html", "leaflet.js", "leaflet.css"):
             src = tmp / name
-            if not src.is_file():
+            if name.endswith(".html") and not src.is_file():
                 raise SystemExit(f"missing {name} in QSS output")
-            shutil.copyfile(src, public / name)
+            if src.is_file():
+                shutil.copyfile(src, public / name)
+        img_tmp = tmp / "images"
+        if img_tmp.is_dir():
+            img_pub = public / "images"
+            img_pub.mkdir(exist_ok=True)
+            for img in img_tmp.iterdir():
+                if img.is_file():
+                    shutil.copyfile(img, img_pub / img.name)
         shutil.copyfile(_HERE / "qss_studio.html", public / "studio.html")
         shutil.copyfile(_HERE / "qss_ranking.html", public / "ranking.html")
         (public / "index.html").write_text(_INDEX, encoding="utf-8")

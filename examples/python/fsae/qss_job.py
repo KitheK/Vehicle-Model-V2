@@ -19,7 +19,7 @@ _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parents[2]
 DEFAULT_CAR = _ROOT / "database/vehicles/fsae/ubco-2026-ev.xlsx"
 DEFAULT_XML = _ROOT / "database/vehicles/fsae/ubco-2026-ev.xml"
-DEFAULT_MAP = _ROOT / "database/tracks/fsae_2019_endurance/2019_endurance.xlsx"
+DEFAULT_MAP = _ROOT / "database/tracks/fsae_ev_2026_endurance/fsae_ev_2026_endurance.xlsx"
 
 
 def synthetic_gg() -> GGTable:
@@ -140,10 +140,16 @@ def run_qss_job(
 
     output.mkdir(parents=True, exist_ok=True)
     track_dir = Path(track_xlsx).resolve().parent
-    has_geo = (track_dir / "official_line.geojson").is_file()
+    from fsae.qss_viz import load_geo_map
+
+    # Prefer workbook OfficialLine / Locations; geojson is only a fallback inside load_geo_map.
+    geo_map = load_geo_map(track_dir)
+    if geo_map is not None:
+        geo_map = dict(geo_map)
+        geo_map["mapScale"] = sc
     ground_assets = (
         track_dir
-        if has_geo
+        if geo_map is not None
         or (track_dir / "overlays.json").is_file()
         or (track_dir / "ground.png").is_file()
         else None
@@ -159,14 +165,6 @@ def run_qss_job(
             cam_height=cam_height,
             track_dir=ground_assets,
         )
-    geo_map = None
-    if ground_assets is not None:
-        from fsae.qss_viz import load_geo_map
-
-        geo_map = load_geo_map(ground_assets)
-        if geo_map is not None:
-            geo_map = dict(geo_map)
-            geo_map["mapScale"] = sc
     write_hud_html(
         view,
         output / "hud.html",
@@ -175,7 +173,19 @@ def run_qss_job(
         geo_map=geo_map,
     )
     write_results_html(view, output / "results.html", cam_height=cam_height, track_dir=ground_assets)
-    # Blender-exported EV1 GLB next to hud.html so file:// and Studio /car.glb resolve
+    # Same-origin Leaflet (CDN often blocked) + EV1 GLB next to hud.html
+    leaf_src = _HERE / "vendor" / "leaflet"
+    for name in ("leaflet.js", "leaflet.css"):
+        src = leaf_src / name
+        if src.is_file():
+            (output / name).write_bytes(src.read_bytes())
+    img_src = leaf_src / "images"
+    if img_src.is_dir():
+        img_dst = output / "images"
+        img_dst.mkdir(exist_ok=True)
+        for img in img_src.iterdir():
+            if img.is_file():
+                (img_dst / img.name).write_bytes(img.read_bytes())
     for cand in (
         _HERE / "car.glb",
         _HERE / "models" / "ubco_ev1" / "car.glb",

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8"/>
 <title>Fastest-lap HUD</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="leaflet.css"/>
+<script src="leaflet.js"></script>
 <style>
   :root { --bg:#0d1117; --panel:#161b22; --fg:#c9d1d9; --muted:#8b949e; --orange:#f5a623;
           --green:#3fb950; --red:#f85149; --cyan:#00aeef; --mag:#ff00ff; --line:#30363d;
@@ -136,7 +136,7 @@
         <input type="checkbox" id="tog-sat" checked/> Satellite
       </label>
       <label style="color:#8b949e;font-size:12px" title="Official EV traced line (optional)">
-        <input type="checkbox" id="tog-circuits"/> Official line
+        <input type="checkbox" id="tog-circuits" checked/> Official line
       </label>
       <label style="color:#8b949e;font-size:12px" title="Asphalt ribbon + throttle/brake trail (same as production HUD)">
         <input type="checkbox" id="tog-asphalt" checked/> Asphalt
