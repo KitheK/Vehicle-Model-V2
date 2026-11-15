@@ -139,11 +139,12 @@ def run_qss_job(
     view.notes = prefix + source + "." + scale_note + " " + view.notes
 
     output.mkdir(parents=True, exist_ok=True)
-    track_dir = Path(track_xlsx).resolve().parent
+    track_xlsx = Path(track_xlsx).resolve()
+    track_dir = track_xlsx.parent
     from fsae.qss_viz import load_geo_map
 
-    # Prefer workbook OfficialLine / Locations; geojson is only a fallback inside load_geo_map.
-    geo_map = load_geo_map(track_dir)
+    # Pass the map workbook path directly — Studio tmp dirs also hold car.xlsx.
+    geo_map = load_geo_map(track_xlsx)
     if geo_map is not None:
         geo_map = dict(geo_map)
         geo_map["mapScale"] = sc

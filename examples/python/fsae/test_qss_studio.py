@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -142,7 +143,29 @@ class TestQssStudio(unittest.TestCase):
         if not data["car"]["fields"]:
             self.skipTest("UBCO workbook not in the tree")
         self.assertTrue(any(f["description"] == "Total Mass" for f in data["car"]["fields"]))
-        self.assertGreater(data["map"]["length_m"], 1800.0)
+        self.assertGreater(data["map"]["length_m"], 1000.0)
+        self.assertLess(data["map"]["length_m"], 1500.0)
+        self.assertIn("Electric", data["map"]["info"].get("name") or "")
+
+    def test_studio_shape_rewrite_keeps_official_line(self) -> None:
+        """Editor Shape rewrite must not drop OfficialLine/Locations (Worker has no sibling geojson)."""
+        from fsae.qss_browser import run_studio
+        from fsae.qss_job import DEFAULT_MAP, defaults_payload
+        from fsae.qss_viz import extract_payload_json
+
+        if not DEFAULT_MAP.is_file():
+            self.skipTest("EV 2026 map workbook missing")
+        data = defaults_payload(Path("missing-out"))
+        summary = run_studio(
+            map_info=data["map"]["info"],
+            shape=data["map"]["shape"],
+            synthetic=True,
+        )
+        payload = json.loads(extract_payload_json(summary["hud_html"]) or "{}")
+        self.assertGreaterEqual(len(payload.get("officialLine") or []), 2)
+        names = {loc.get("name") for loc in (payload.get("locations") or [])}
+        self.assertIn("Michigan MIS", names)
+        self.assertIn("UBCO Lot H", names)
 
     def test_preview_skidpad_map(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
