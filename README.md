@@ -1,54 +1,67 @@
 # Vehicle-Model-V2
 
-Standalone vehicle-dynamics model for the **UBCO 2026 FSAE EV2**.
+Standalone vehicle-dynamics stack for the **UBCO 2026 FSAE EV** — from OpenVEHICLE / OpenTRACK workbooks through quasi-steady-state (QSS) laps to a geographic HUD on Cloudflare.
 
-The home for the `fsae-6dof` car: setup
-exploration, numerical G-G diagrams, quasi-steady-state (QSS) laps, and the
-live HUD. The Newton–Euler engine is derived from
-[fastest-lap](https://github.com/juanmanzanero/fastest-lap) (MIT); see
-[`NOTICE.md`](NOTICE.md) and [`LICENSE`](LICENSE).
+The Newton–Euler `fsae-6dof` car is derived from [fastest-lap](https://github.com/juanmanzanero/fastest-lap) (MIT); see [`NOTICE.md`](NOTICE.md) and [`LICENSE`](LICENSE).
+
+**Live Worker:** [vehicle-model-v2.kithekisia.workers.dev](https://vehicle-model-v2.kithekisia.workers.dev/hud.html) · Pages: `hud.html` · `studio.html` · `results.html` · `ranking.html`
 
 Public type string: **`fsae-6dof`** · C++ type: **`fsae6dof`**
 
-| Need | How this repo meets it |
+## What this project covers
+
+| Area | What you get |
 |---|---|
-| G-G envelope vs speed | Python `gg_diagram()` on `fsae-6dof` |
-| QSS lap + HUD | `examples/python/fsae/run_qss.py` on an OpenTRACK workbook |
-| Optimal lap time (transient NLP) | Python `optimal_laptime()` — registered, not yet a green run |
-| FSAE 80 kW / peak-torque motor | EV torque–speed envelope + regen in `ubco-2026-ev.xml` |
-| Heave/pitch aero | Linear Cl/Cd maps vs `z` and pitch `μ` |
-| Tire temperature | One thermal node per tire; grip scales Pacejka Fx/Fy |
-| Camber / toe vs roll | Linear kinematic gains (not hardpoint IK) |
-| Physics checks | Google Test suite `fsae6dof*` |
+| **Car model** | Sprung 6DOF FSAE EV (`ubco-2026-ev.xlsx` / `.xml`): EV torque–speed envelope, regen, heave/pitch aero maps, tire thermal grip, linear camber/toe vs roll |
+| **Track maps** | OpenTRACK Shape workbooks + WGS84 `OfficialLine` / `Locations` (default: FSAE Electric Endurance 2026 at MIS, with UBCO / UBC site projections) |
+| **QSS lap** | OpenLAP-style three-pass speed trace from a G-G table — the working FSAE lap path today |
+| **Geographic HUD** | Leaflet + Esri satellite, asphalt ribbon + TPS/BPS trail, EV1 GLB car, site search / Adjust placement, map download (`.xlsx`) |
+| **Studio** | Upload Car / Map / Driver `.xlsx`, edit defaults, run QSS locally or in the browser (Pyodide on the Worker) |
+| **Ranking** | Ghost / compare stored Studio laps |
+| **Engine** | Numerical G-G via `gg_diagram()`; transient `optimal_laptime()` registered but not yet a green FSAE run |
 
-Vehicle workbook (source of numbers): [`database/vehicles/fsae/ubco-2026-ev.xlsx`](database/vehicles/fsae/ubco-2026-ev.xlsx)
-Vehicle XML (what the C++/Python API loads): [`database/vehicles/fsae/ubco-2026-ev.xml`](database/vehicles/fsae/ubco-2026-ev.xml)
-Design notes: [`docs/superpowers/specs/2026-08-14-fsae-6dof-design.md`](docs/superpowers/specs/2026-08-14-fsae-6dof-design.md), [`docs/superpowers/specs/2026-08-14-fsae-further-ideas-design.md`](docs/superpowers/specs/2026-08-14-fsae-further-ideas-design.md)
-
-**Not in this model:** unsprung quarter-car, 3D wishbone IK, 3-node tire thermal, battery SOC as a state, ABS, track banking.
+**Not in this model:** unsprung quarter-car, 3D wishbone IK, 3-node tire thermal, battery SOC as a state, ABS, track banking / elevation.
 
 ## Layout
 
 ```
-database/vehicles/fsae/          UBCO 2026 EV (.xlsx + .xml)
-database/tracks/fsae_*/          2019 endurance + skidpad OpenTRACK maps
-examples/python/fsae/            QSS lap, HUD, OpenVEHICLE / OpenTRACK I/O
-src/core/vehicles/fsae6dof.h     Vehicle type
-src/core/chassis/*_fsae.*        Axle + chassis
+database/vehicles/fsae/                 UBCO 2026 EV (.xlsx + .xml)
+database/tracks/fsae_ev_2026_endurance/ Default EV 2026 map + official_line.geojson
+database/tracks/famous_maps/            Extra WGS84 courses for the HUD map picker
+database/tracks/fsae_2019_endurance/    Legacy 2019 endurance Shape map
+examples/python/fsae/                   QSS, HUD template, Studio, OpenVEHICLE / OpenTRACK I/O
+public/                                 Cloudflare static assets (HUD, Studio, car.glb, Leaflet)
+src/core/vehicles/fsae6dof.h            Vehicle type
+src/core/chassis/*_fsae.*               Axle + chassis
 src/test/vehicles/fsae6dof_test.cpp
-src/main/c/                      C API → Python ctypes
+src/main/c/                             C API → Python ctypes
 ```
 
-Kart (`kart-6dof`) and F1 (`f1-3dof`) remain in the engine so the shared
-chassis / tire / G-G / Ipopt stack still builds and tests. New model work
-belongs under `fsae-6dof` and `examples/python/fsae/`.
+Kart (`kart-6dof`) and F1 (`f1-3dof`) remain so the shared chassis / tire / G-G / Ipopt stack still builds. New model work belongs under `fsae-6dof` and `examples/python/fsae/`.
 
-## Cloudflare
+## Quick start (local Studio + HUD)
 
-Git deploy is a Worker plus static assets. Studio runs QSS in the browser
-(Pyodide) so Cloudflare does not need to push a container image.
+```powershell
+$env:VM = "C:\path\to\Vehicle-Model-V2"
+$env:PYTHONPATH = "$env:VM\examples\python"
+python -m pip install -r "$env:VM\requirements.txt"
+python "$env:VM\examples\python\fsae\qss_server.py" --port 18080 -o "$env:VM\qss_out_ev2026"
+# open http://127.0.0.1:18080/studio.html  or  /hud.html
+```
 
-Build command (Cloudflare Git integration or local):
+Defaults are the UBCO 2026 EV car and **FSAE Electric Endurance 2026** map (OfficialLine + Locations). CLI:
+
+```bash
+PYTHONPATH=$VM/examples/python python3 $VM/examples/python/fsae/run_qss.py \
+  --track-xlsx $VM/database/tracks/fsae_ev_2026_endurance/fsae_ev_2026_endurance.xlsx \
+  --synthetic -o $VM/qss_out_ev2026
+```
+
+`--synthetic` skips `gg_diagram` if `libfastestlapc` is missing. `--v-cap` caps speed (default 40 m/s).
+
+## Cloudflare Worker
+
+Git push to `main` builds and deploys a Worker that serves `public/` and keeps the last Studio HUD / MATLAB / ranking payload in a Durable Object.
 
 ```bash
 python3 -m pip install -r requirements.txt
@@ -56,184 +69,86 @@ PYTHONPATH=examples/python python3 examples/python/fsae/build_pages.py
 npx wrangler deploy
 ```
 
-`build_pages.py` writes `public/` (HUD, MATLAB, Studio, Ranking, `qss-runtime.zip`).
-The Worker serves those assets and stores HUD / MATLAB / ranking.json in a
-Durable Object after each Studio run.
+`build_pages.py` writes HUD, MATLAB, Studio, Ranking, `defaults.json`, `qss-runtime.zip` (Pyodide), Leaflet, and the EV1 `car.glb`.
 
-Pages: `hud.html` · `results.html` · `studio.html` · `ranking.html`
+## Workbooks
 
-Local Studio is unchanged:
+Three `.xlsx` kinds share a `Format` sheet (`Kind` = `car` | `map` | `driver`):
 
-```bash
-python3 $VM/examples/python/fsae/qss_server.py --port 18080 -o $VM/qss_out
-```
-
-## How to run
-
-Assume `$VM` is this repository root. Build with GCC (see [Installation](#installation)).
-CMake generates `examples/python/fastest_lap.py` (not committed); it already
-knows the path to `libfastestlapc`.
+- **Car** — `Info` + `Torque Curve` + `FastestLap` (OpenVEHICLE + 6DOF fields)
+- **Map** — `Info` + `Shape` (`Straight` / `Left` / `Right`); optional `OfficialLine`, `Locations`, `MapCorners` for the geographic HUD
+- **Driver** — `Info` + `Channels` + `Envelope`
 
 ```bash
-python3 -m pip install -r $VM/requirements.txt
-export LD_LIBRARY_PATH=$VM/build/lib:$VM/build/thirdparty/lib:$LD_LIBRARY_PATH
-export PYTHONPATH=$VM/examples/python
+python3 $VM/examples/python/fsae/xlsx_convert.py \
+  $VM/database/vehicles/fsae/ubco-2026-ev.xlsx
 ```
 
-PowerShell:
+## Geographic HUD notes
 
-```powershell
-python -m pip install -r "$env:VM\requirements.txt"
-$env:PYTHONPATH = "$env:VM\examples\python"
-$env:PATH = "$env:VM\build\lib;$env:VM\build\thirdparty\lib;$env:PATH"
-```
+- **Asphalt** on satellite imagery is the primary track visualization (throttle/brake trail along the WGS84 line).
+- **Location** search reprojects the course (ENU) onto named sites or a geocoded place; **Adjust** nudges placement; **Download** exports a corrected map `.xlsx`.
+- **Map** picker loads famous courses from `database/tracks/famous_maps/`.
+- Preview scale in the header remaps the current lap for display; remesh + QSS needs Studio Calculate with `map_scale`.
 
-### 1. Confirm the vehicle loads (C++ tests)
+## fsae-6dof / G-G / tests
 
-Run from the vehicles test directory so `./database` resolves:
+Build with GCC (see [Installation](#installation)). Confirm the vehicle:
 
 ```bash
 cd $VM/build/src/test/vehicles
 ./vehicles_test --gtest_filter='fsae6dof*'
 ```
 
-XML load, EV envelope, aero maps, tire heating, camber vs roll, load transfer,
-regen / battery-energy integral, and a 2-point G-G smoke at 15 m/s.
-
-### 2. Numerical G-G diagram (Python)
+Numerical G-G (Python):
 
 ```python
 import fastest_lap
 from fastest_lap import KMH
-
-vehicle = "ubco"
-fastest_lap.create_vehicle_from_xml(
-    vehicle, "/path/to/database/vehicles/fsae/ubco-2026-ev.xml"
-)
-ay, ay_minus, ax_max, ax_min = fastest_lap.gg_diagram(vehicle, 54.0 * KMH, 10)
-fastest_lap.plot_gg(ay, ay_minus, ax_max, ax_min)
+fastest_lap.create_vehicle_from_xml("ubco", "/path/to/ubco-2026-ev.xml")
+ay, ay_minus, ax_max, ax_min = fastest_lap.gg_diagram("ubco", 54.0 * KMH, 10)
 ```
-
-### 3. Vehicle / track / driver workbooks
-
-Three `.xlsx` kinds share a `Format` sheet (`Kind` = `car` | `map` | `driver`):
-
-- **Car** — `Info` + `Torque Curve` + `FastestLap` (OpenVEHICLE + 6DOF fields)
-- **Map** — `Info` + `Shape` (`Straight` / `Left` / `Right`)
-- **Driver** — `Info` + `Channels` + `Envelope` (lap, driver inputs, reconstructed 6DOF)
-
-Convert any of them with:
-
-```bash
-python3 $VM/examples/python/fsae/xlsx_convert.py \
-    $VM/database/vehicles/fsae/ubco-2026-ev.xlsx
-python3 $VM/examples/python/fsae/xlsx_convert.py \
-    $VM/database/tracks/fsae_2019_endurance/2019_endurance.xlsx
-```
-
-Car → vehicle XML, Map → discrete track XML. The older `xlsx_to_xml.py` /
-`xlsx_to_track.py` entry points still work.
-
-### 4. QSS lap + HUD / MATLAB / Studio
-
-```bash
-python3 $VM/examples/python/fsae/qss_server.py --port 18080 -o $VM/qss_out
-# open http://127.0.0.1:18080/studio.html
-```
-
-Studio loads the UBCO 2026 EV and 2019 Endurance defaults, lets you upload
-Car / Map / Driver `.xlsx` files, edit car numbers and map sections, then
-runs QSS. HUD and MATLAB pages update in the same folder.
-
-CLI (writes PNG frames as well):
-
-```bash
-python3 $VM/examples/python/fsae/run_qss.py \
-    --vehicle-xlsx $VM/database/vehicles/fsae/ubco-2026-ev.xlsx \
-    --vehicle-xml  $VM/database/vehicles/fsae/ubco-2026-ev.xml \
-    --track-xlsx   $VM/database/tracks/fsae_2019_endurance/2019_endurance.xlsx \
-    --synthetic -o $VM/qss_out
-```
-
-`--synthetic` skips `gg_diagram` if `libfastestlapc` is missing. `--v-cap`
-caps speed (default 40 m/s). `--cam-height` sets the follow-cam field of view.
-
-Hello-world QSS on UBCO 2026 EV / 2019 endurance: **114.552 s**, speed
-16.4 / 65.1 / 138.3 km/h, peak |ay| 1.649 g.
-
-`fsae-6dof` rejects elevation/banking tracks. A full transient
-`optimal_laptime()` NLP is registered but not yet green; G-G + QSS is the
-working optimal-speed path.
 
 Python unit tests (no C library required for viz / xlsx):
 
 ```bash
-PYTHONPATH=$VM/examples/python python3 -m unittest fsae.test_openvehicle_xlsx
-PYTHONPATH=$VM/examples/python python3 -m unittest fsae.test_opentrack_xlsx
-PYTHONPATH=$VM/examples/python python3 -m unittest fsae.test_qss_viz
-PYTHONPATH=$VM/examples/python python3 -m unittest fsae.test_xlsx_kit
-PYTHONPATH=$VM/examples/python python3 -m unittest fsae.test_qss_studio
+PYTHONPATH=$VM/examples/python python3 -m unittest fsae.test_qss_viz fsae.test_qss_studio \
+  fsae.test_opentrack_xlsx fsae.test_openvehicle_xlsx fsae.test_xlsx_kit
 ```
 
 ## Suspension (fsae-6dof)
 
-Sprung 6DOF only: no unsprung mass, no 3D wishbone IK. Each corner is
-algebraic wheel-rate `kw` in series with tire radial stiffness `kt`, plus
-damper `cs` and anti-roll coupling. Contact load is
-`Fz = smooth_pos(kt·w + cs·ṡ)`. Hub motion comes from chassis heave / roll /
-pitch. Camber and toe are linear in roll. MATLAB 2-DOF quarter-car remains
-the ride tool. QSS HUD `Fz` values are algebraic load transfer, not this
-spring network.
+Sprung 6DOF only: no unsprung mass, no 3D wishbone IK. Each corner is algebraic wheel-rate `kw` in series with tire radial stiffness `kt`, plus damper `cs` and anti-roll. Contact load is `Fz = smooth_pos(kt·w + cs·ṡ)`. Camber and toe are linear in roll. QSS HUD `Fz` values are algebraic load transfer, not this spring network.
 
 ## Installation
 
-GCC is required. On modern GCC (13+), pass `-include utility` so `std::as_const`
-is visible.
+GCC is required. On modern GCC (13+), pass `-include utility` so `std::as_const` is visible.
 
 ```bash
-mkdir $VM/build
-cd $VM/build
+mkdir $VM/build && cd $VM/build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-include utility"
 cmake --build . -j$(nproc)
 ```
 
-CMake downloads lion (Ipopt, CppAD, TinyXML2, …) into `build/thirdparty/`.
-
-CMake options: `-DCMAKE_BUILD_TYPE=Debug/Release`, `-DCMAKE_INSTALL_PREFIX=…`,
-`-DCODE_COVERAGE=Yes/No`, `-DBUILD_DOC=Yes/No`.
-
-Optional Docker: `sh ./src/scripts/linux/docker_compile.sh`.
-
-The lighter FSAE check is `./vehicles_test --gtest_filter='fsae6dof*'` from
-`build/src/test/vehicles`. `ctest` / `applications_test` is the full engine
-suite (including kart/F1 Ipopt cases).
+CMake downloads lion (Ipopt, CppAD, TinyXML2, …) into `build/thirdparty/`. Optional Docker: `sh ./src/scripts/linux/docker_compile.sh`.
 
 ## Engine dependencies
 
-- [Ipopt](https://github.com/coin-or/Ipopt) — NLP for optimal laptime
-- [CppAD](https://github.com/coin-or/CppAD) — algorithmic differentiation
-- [TinyXML-2](https://github.com/leethomason/tinyxml2) — vehicle/track XML
-- [lion-cpp](https://github.com/juanmanzanero/lion-cpp) — frames, AD, optimizer glue
+- [Ipopt](https://github.com/coin-or/Ipopt) — NLP for optimal laptime  
+- [CppAD](https://github.com/coin-or/CppAD) — algorithmic differentiation  
+- [TinyXML-2](https://github.com/leethomason/tinyxml2) — vehicle/track XML  
+- [lion-cpp](https://github.com/juanmanzanero/lion-cpp) — frames, AD, optimizer glue  
 
 Python (`requirements.txt`): numpy, matplotlib, openpyxl.
 
-## What can be done
+## Design docs
 
-- **Numerical G-G diagram:** given a vehicle and a speed, compute the ax–ay
-  envelope as an optimization problem.
-- **Optimal laptime (engine):** fully transient collocation + Ipopt. Wired for
-  `fsae-6dof` but not a green run yet.
-- **QSS lap:** OpenLAP-style three-pass speed trace on an OpenTRACK polyline
-  using the G-G table — this is the working FSAE lap path today.
-
-Kart and F1 example notebooks under `examples/python/` show the same C API
-with different XML.
+- [`docs/superpowers/specs/2026-08-14-fsae-6dof-design.md`](docs/superpowers/specs/2026-08-14-fsae-6dof-design.md)  
+- [`docs/superpowers/specs/2026-08-14-fsae-further-ideas-design.md`](docs/superpowers/specs/2026-08-14-fsae-further-ideas-design.md)  
+- Track placement / geo HUD specs under `docs/superpowers/specs/`
 
 ## References
 
-The 6DOF chassis and tire formulation follow the fastest-lap / Lot–Limebeer
-literature. See `docs/` and:
-
-1. Tremlett & Limebeer, *Optimal tyre usage for a formula one car*, VSD 2016.
-2. Lot & Dal Bianco, *Lap time optimisation of a racing go-kart*, VSD 2016.
-3. Perantoni et al., *Optimal Control for a Formula One Car with Variable Parameters*.
+1. Tremlett & Limebeer, *Optimal tyre usage for a formula one car*, VSD 2016.  
+2. Lot & Dal Bianco, *Lap time optimisation of a racing go-kart*, VSD 2016.  
+3. Perantoni et al., *Optimal Control for a Formula One Car with Variable Parameters*.  
