@@ -64,6 +64,46 @@ function applyPayloadJson(templateHtml, payloadJson) {
   return templateHtml.replace(existing, payloadJson);
 }
 
+function mergeMissingGeo(storedPayload, assetHtml) {
+  /* Studio DO laps can lack OfficialLine; keep channels but restore geo from baked assets. */
+  let stored;
+  try {
+    stored = JSON.parse(storedPayload);
+  } catch {
+    return storedPayload;
+  }
+  if (Array.isArray(stored.officialLine) && stored.officialLine.length >= 2) {
+    return storedPayload;
+  }
+  const assetRaw = extractPayloadJson(assetHtml);
+  if (!assetRaw) return storedPayload;
+  let asset;
+  try {
+    asset = JSON.parse(assetRaw);
+  } catch {
+    return storedPayload;
+  }
+  if (!Array.isArray(asset.officialLine) || asset.officialLine.length < 2) {
+    return storedPayload;
+  }
+  for (const key of [
+    "officialLine",
+    "officialLineOriginal",
+    "mapCorners",
+    "mapCenter",
+    "mapZoom",
+    "followZoom",
+    "locations",
+    "activeLocation",
+    "famousMaps",
+    "activeMap",
+    "mapScale",
+  ]) {
+    if (asset[key] != null) stored[key] = asset[key];
+  }
+  return JSON.stringify(stored);
+}
+
 async function serveLapPage(request, env, name) {
   const asset = await env.ASSETS.fetch(new URL("/" + name, request.url));
   if (!asset.ok) return asset;
@@ -71,8 +111,11 @@ async function serveLapPage(request, env, name) {
   const stored = await store(env).fetch(new Request("https://store/" + name));
   if (stored.ok) {
     const old = await stored.text();
-    const payload = extractPayloadJson(old);
-    if (payload) html = applyPayloadJson(html, payload);
+    let payload = extractPayloadJson(old);
+    if (payload) {
+      payload = mergeMissingGeo(payload, html);
+      html = applyPayloadJson(html, payload);
+    }
   }
   if (!html.includes("ranking.html")) {
     html = html.replace(
