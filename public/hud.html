@@ -15,6 +15,7 @@
                font-family: ui-sans-serif, system-ui, sans-serif; }
   #wrap { display:grid; grid-template-columns: 1fr 380px; grid-template-rows: auto 1fr 172px;
           height:100%; gap:8px; padding:8px; }
+  #wrap.telem-collapsed { grid-template-rows: auto 1fr auto; }
   header { grid-column:1 / -1; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
            gap:8px; padding:6px 10px; background:var(--panel); border:1px solid var(--line); border-radius:8px; }
   header h1 { font-size:18px; margin:0; font-weight:650; }
@@ -83,7 +84,16 @@
   .barfz > i { display:block; height:100%; }
   #telem { grid-column:1 / -1; background:var(--panel); border:1px solid var(--line); border-radius:8px;
            display:flex; flex-direction:column; min-height:0; }
-  #telem-filters { display:flex; flex-wrap:wrap; gap:8px 14px; padding:6px 10px 2px; align-items:center; }
+  #telem-head { display:flex; align-items:center; justify-content:space-between; gap:8px;
+                padding:4px 8px 2px; flex:0 0 auto; }
+  #telem-head h2 { margin:0; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  #telem-toggle { margin:0; width:28px; height:24px; padding:0; font-size:14px; line-height:1;
+                  display:inline-flex; align-items:center; justify-content:center; }
+  #telem-toggle .chev { display:inline-block; transition: transform .15s ease; }
+  #telem.collapsed #telem-toggle .chev { transform: rotate(180deg); }
+  #telem.collapsed #telem-body { display:none; }
+  #telem-body { display:flex; flex-direction:column; flex:1; min-height:0; }
+  #telem-filters { display:flex; flex-wrap:wrap; gap:8px 14px; padding:2px 10px 2px; align-items:center; }
   #telem-filters label { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--muted);
                          cursor:pointer; user-select:none; }
   #telem-filters label.on { color:var(--fg); }
@@ -209,15 +219,22 @@
     <div class="card"><h2>Map</h2><canvas id="mini" width="360" height="180"></canvas></div>
   </div>
   <div id="telem">
-    <div id="telem-filters" role="group" aria-label="Telemetry channels">
-      <label class="on"><input type="checkbox" data-ch="v" checked/><i class="sw" style="background:#ff00ff"></i> speed</label>
-      <label class="on"><input type="checkbox" data-ch="steer" checked/><i class="sw" style="background:#00aeef"></i> steer</label>
-      <label class="on"><input type="checkbox" data-ch="tps" checked/><i class="sw" style="background:#3fb950"></i> tps</label>
-      <label class="on"><input type="checkbox" data-ch="bps" checked/><i class="sw" style="background:#f85149"></i> bps</label>
-      <label class="on"><input type="checkbox" data-ch="ax" checked/><i class="sw" style="background:#f5a623"></i> ax</label>
-      <label class="on"><input type="checkbox" data-ch="ay" checked/><i class="sw" style="background:#58a6ff"></i> ay</label>
+    <div id="telem-head">
+      <h2>Analytics</h2>
+      <button type="button" id="telem-toggle" aria-expanded="true" aria-controls="telem-body"
+              aria-label="Collapse analytics" title="Collapse analytics"><span class="chev" aria-hidden="true">▾</span></button>
     </div>
-    <canvas id="strip"></canvas>
+    <div id="telem-body">
+      <div id="telem-filters" role="group" aria-label="Telemetry channels">
+        <label class="on"><input type="checkbox" data-ch="v" checked/><i class="sw" style="background:#ff00ff"></i> speed</label>
+        <label class="on"><input type="checkbox" data-ch="steer" checked/><i class="sw" style="background:#00aeef"></i> steer</label>
+        <label class="on"><input type="checkbox" data-ch="tps" checked/><i class="sw" style="background:#3fb950"></i> tps</label>
+        <label class="on"><input type="checkbox" data-ch="bps" checked/><i class="sw" style="background:#f85149"></i> bps</label>
+        <label class="on"><input type="checkbox" data-ch="ax" checked/><i class="sw" style="background:#f5a623"></i> ax</label>
+        <label class="on"><input type="checkbox" data-ch="ay" checked/><i class="sw" style="background:#58a6ff"></i> ay</label>
+      </div>
+      <canvas id="strip"></canvas>
+    </div>
   </div>
 </div>
 <script type="module">
@@ -2146,6 +2163,21 @@ document.querySelectorAll('#telem-filters input[data-ch]').forEach(el => {
   el.addEventListener('change', sync);
   sync();
 });
+(function initTelemCollapse(){
+  const telem = document.getElementById('telem');
+  const btn = document.getElementById('telem-toggle');
+  const wrap = document.getElementById('wrap');
+  if (!telem || !btn || !wrap) return;
+  btn.addEventListener('click', () => {
+    const on = telem.classList.toggle('collapsed');
+    wrap.classList.toggle('telem-collapsed', on);
+    btn.setAttribute('aria-expanded', on ? 'false' : 'true');
+    const label = on ? 'Expand analytics' : 'Collapse analytics';
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    if (leafMap) setTimeout(() => leafMap.invalidateSize(), 0);
+  });
+})();
 window.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   if (e.code === 'Space'){
