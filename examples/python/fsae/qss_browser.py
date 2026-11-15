@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fsae.opentrack_xlsx import OpenTrackInfo, write_map_xlsx
+from fsae.opentrack_xlsx import OpenTrackInfo, read_track_georef, write_map_xlsx
 from fsae.qss_job import DEFAULT_CAR, DEFAULT_MAP, run_qss_job
 from fsae.xlsx_kit import detect_kind, patch_car_xlsx, preview_workbook
 
@@ -79,7 +79,9 @@ def run_studio(
                 mirror=str(info_raw.get("mirror") or "Off"),
             )
             map_xlsx = tmp / "map.xlsx"
-            write_map_xlsx(map_xlsx, info, segments)
+            # Keep OfficialLine/Locations from the default (or prior) workbook —
+            # Shape rewrite alone would drop geo and break the Worker HUD.
+            write_map_xlsx(map_xlsx, info, segments, georef=read_track_georef(map_src))
 
         out.mkdir(parents=True, exist_ok=True)
         summary = run_qss_job(

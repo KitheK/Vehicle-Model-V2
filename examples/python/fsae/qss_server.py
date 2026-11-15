@@ -498,7 +498,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
             # An uploaded Map workbook is the source of truth. The editor Shape table
             # is only written when the user did not attach a map file.
             if not ("map" in files and files["map"][1]) and fields.get("shape"):
-                from fsae.opentrack_xlsx import OpenTrackInfo
+                from fsae.opentrack_xlsx import OpenTrackInfo, read_track_georef
 
                 info_raw = json.loads(fields.get("map_info") or "{}")
                 shape_raw = json.loads(fields["shape"])
@@ -519,7 +519,12 @@ class StudioHandler(SimpleHTTPRequestHandler):
                     mirror=str(info_raw.get("mirror") or "Off"),
                 )
                 map_xlsx = tmp / "map.xlsx"
-                write_map_xlsx(map_xlsx, info, shape)
+                write_map_xlsx(
+                    map_xlsx,
+                    info,
+                    shape,
+                    georef=read_track_georef(map_src),
+                )
 
             synthetic = _flag(fields, "synthetic", True)
             from_rest = _flag(fields, "from_rest", False)

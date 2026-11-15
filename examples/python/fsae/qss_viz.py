@@ -476,6 +476,8 @@ def resolve_official_line_path(track_dir: str | Path | None = None) -> Optional[
     candidates: list[Path] = []
     if track_dir is not None:
         td = Path(track_dir)
+        if td.is_file():
+            td = td.parent
         candidates.append(td / "official_line.geojson")
     # Vehicle-Model-V2/examples/python/fsae → …/Patricks day map/fsae-ev-endurance-map
     here = Path(__file__).resolve()
@@ -501,8 +503,19 @@ def resolve_track_xlsx(track_dir: str | Path | None = None) -> Optional[Path]:
     named = td / f"{td.name}.xlsx"
     if named.is_file():
         return named
-    xlsxs = sorted(td.glob("*.xlsx"))
-    return xlsxs[0] if xlsxs else None
+    # Studio tmp dirs also contain car.xlsx — never pick that by name sort.
+    from fsae.xlsx_kit import detect_kind
+
+    maps: list[Path] = []
+    for path in sorted(td.glob("*.xlsx")):
+        try:
+            if detect_kind(path) == "map":
+                maps.append(path)
+        except Exception:
+            continue
+    if maps:
+        return maps[0]
+    return None
 
 
 def load_geo_map(
@@ -541,7 +554,10 @@ def load_geo_map(
             return None
 
     if track_dir is not None:
-        corners_path = Path(track_dir) / "map_corners.json"
+        folder = Path(track_dir)
+        if folder.is_file():
+            folder = folder.parent
+        corners_path = folder / "map_corners.json"
         if corners_path.is_file():
             try:
                 raw = json.loads(corners_path.read_text(encoding="utf-8"))
