@@ -472,23 +472,14 @@ def _line_coords_from_geojson(data: dict) -> list[list[float]]:
 
 
 def resolve_official_line_path(track_dir: str | Path | None = None) -> Optional[Path]:
-    """Prefer track-folder geojson; fall back to the sibling endurance-map project."""
-    candidates: list[Path] = []
-    if track_dir is not None:
-        td = Path(track_dir)
-        if td.is_file():
-            td = td.parent
-        candidates.append(td / "official_line.geojson")
-    # Vehicle-Model-V2/examples/python/fsae → …/Patricks day map/fsae-ev-endurance-map
-    here = Path(__file__).resolve()
-    candidates.append(
-        here.parents[4] / "fsae-ev-endurance-map" / "official_line.geojson"
-    )
-    candidates.append(here.parents[3] / "fsae-ev-endurance-map" / "official_line.geojson")
-    for p in candidates:
-        if p.is_file():
-            return p
-    return None
+    """Same-folder ``official_line.geojson`` only — never borrow another map's line."""
+    if track_dir is None:
+        return None
+    td = Path(track_dir)
+    if td.is_file():
+        td = td.parent
+    path = td / "official_line.geojson"
+    return path if path.is_file() else None
 
 
 def resolve_track_xlsx(track_dir: str | Path | None = None) -> Optional[Path]:

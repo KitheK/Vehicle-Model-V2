@@ -167,6 +167,27 @@ class TestQssStudio(unittest.TestCase):
         self.assertIn("Michigan MIS", names)
         self.assertIn("UBCO Lot H", names)
 
+    def test_uploaded_map_without_georef_uses_mesh_animation(self) -> None:
+        """Processed Shape-only maps must not inherit another course's OfficialLine."""
+        from fsae.qss_browser import run_studio
+        from fsae.qss_viz import extract_payload_json
+
+        with tempfile.TemporaryDirectory() as tmp:
+            track = Path(tmp) / "custom.xlsx"
+            car = Path(tmp) / "car.xlsx"
+            write_fsae_skidpad_xlsx(track)
+            write_ubco_2026_xlsx(car)
+            summary = run_studio(
+                car_path=car,
+                map_path=track,
+                synthetic=True,
+                output=Path(tmp) / "out",
+            )
+            payload = json.loads(extract_payload_json(summary["hud_html"]) or "{}")
+            self.assertEqual(payload.get("track"), "FSAE Skidpad")
+            self.assertFalse(payload.get("officialLine"))
+            self.assertGreater(len(payload.get("x") or []), 10)
+
     def test_preview_skidpad_map(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "skidpad.xlsx"
