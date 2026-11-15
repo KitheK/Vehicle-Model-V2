@@ -64,26 +64,15 @@ function applyPayloadJson(templateHtml, payloadJson) {
   return templateHtml.replace(existing, payloadJson);
 }
 
-function meshAspect(payload) {
-  const xs = payload.x || [];
-  const ys = payload.y || [];
-  if (xs.length < 2 || ys.length < 2) return 0;
-  let minX = xs[0], maxX = xs[0], minY = ys[0], maxY = ys[0];
-  for (let i = 1; i < xs.length; i++) {
-    if (xs[i] < minX) minX = xs[i];
-    if (xs[i] > maxX) maxX = xs[i];
-    if (ys[i] < minY) minY = ys[i];
-    if (ys[i] > maxY) maxY = ys[i];
-  }
-  return (maxX - minX) / Math.max(maxY - minY, 1e-9);
-}
-
 function mergeMissingGeo(storedPayload, assetHtml) {
-  /* Studio DO laps can lack OfficialLine; keep channels but restore geo from baked assets. */
+  /* Only backfill geo onto the *same* track — never replace a Studio-processed map lap. */
   let stored;
   try {
     stored = JSON.parse(storedPayload);
   } catch {
+    return storedPayload;
+  }
+  if (Array.isArray(stored.officialLine) && stored.officialLine.length >= 2) {
     return storedPayload;
   }
   const assetRaw = extractPayloadJson(assetHtml);
@@ -97,14 +86,8 @@ function mergeMissingGeo(storedPayload, assetHtml) {
   if (!Array.isArray(asset.officialLine) || asset.officialLine.length < 2) {
     return storedPayload;
   }
-  /* Stale DO mesh (e.g. old Studio/runtime) — prefer the baked EV 2026 asset lap. */
-  const aAsp = meshAspect(asset);
-  const sAsp = meshAspect(stored);
-  if (aAsp > 0 && sAsp > 0) {
-    const ratio = sAsp / aAsp;
-    if (ratio < 0.55 || ratio > 1.8) return assetRaw;
-  }
-  if (Array.isArray(stored.officialLine) && stored.officialLine.length >= 2) {
+  /* Different processed map → keep Studio channels (mesh animation like the old HUD). */
+  if (String(stored.track || "") !== String(asset.track || "")) {
     return storedPayload;
   }
   for (const key of [
