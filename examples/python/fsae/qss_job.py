@@ -100,9 +100,10 @@ def run_qss_job(
     plots: bool = False,
     hud_index: Optional[int] = None,
     from_rest: bool = False,
+    map_scale: float = 1.0,
 ) -> Dict[str, Any]:
     """Mesh the map, reconstruct driver/6DOF channels, write HUD + MATLAB pages."""
-    mesh = mesh_opentrack(track_xlsx)
+    mesh = mesh_opentrack(track_xlsx, scale=float(map_scale) if map_scale and map_scale > 0 else 1.0)
     params: Dict[str, Any] = {}
     if vehicle_xlsx.is_file():
         params = derived_vehicle(read_openvehicle_xlsx(vehicle_xlsx))
@@ -133,16 +134,58 @@ def run_qss_job(
     )
     view.from_rest = bool(from_rest)
     prefix = "Standing start (~0.5 m/s). " if from_rest else ""
-    view.notes = prefix + source + ". " + view.notes
+    sc = float(map_scale) if map_scale and map_scale > 0 else 1.0
+    scale_note = f" Map scale ×{sc:g}." if abs(sc - 1.0) > 1e-9 else ""
+    view.notes = prefix + source + "." + scale_note + " " + view.notes
 
     output.mkdir(parents=True, exist_ok=True)
+    track_dir = Path(track_xlsx).resolve().parent
+    has_geo = (track_dir / "official_line.geojson").is_file()
+    ground_assets = (
+        track_dir
+        if has_geo
+        or (track_dir / "overlays.json").is_file()
+        or (track_dir / "ground.png").is_file()
+        else None
+    )
     if plots:
         from fsae.qss_viz import plot_hud_frame, plot_openlap_results
 
         plot_openlap_results(view, output / "openlap_results.png")
-        plot_hud_frame(view, output / "hud_frame.png", index=hud_index, cam_height=cam_height)
-    write_hud_html(view, output / "hud.html", cam_height=cam_height)
-    write_results_html(view, output / "results.html", cam_height=cam_height)
+        plot_hud_frame(
+            view,
+            output / "hud_frame.png",
+            index=hud_index,
+            cam_height=cam_height,
+            track_dir=ground_assets,
+        )
+    geo_map = None
+    if ground_assets is not None:
+        from fsae.qss_viz import load_geo_map
+
+        geo_map = load_geo_map(ground_assets)
+        if geo_map is not None:
+            geo_map = dict(geo_map)
+            geo_map["mapScale"] = sc
+    write_hud_html(
+        view,
+        output / "hud.html",
+        cam_height=cam_height,
+        track_dir=ground_assets,
+        geo_map=geo_map,
+    )
+    write_results_html(view, output / "results.html", cam_height=cam_height, track_dir=ground_assets)
+    # Blender-exported EV1 GLB next to hud.html so file:// and Studio /car.glb resolve
+    for cand in (
+        _HERE / "car.glb",
+        _HERE / "models" / "ubco_ev1" / "car.glb",
+        _ROOT / "public" / "car.glb",
+    ):
+        if cand.is_file():
+            dest = output / "car.glb"
+            if cand.resolve() != dest.resolve():
+                dest.write_bytes(cand.read_bytes())
+            break
     write_csv(view, output / "channels.csv")
     write_driver_xlsx(view, output / "driver.xlsx")
     write_summary(view, output / "summary.txt")

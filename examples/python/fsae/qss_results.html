@@ -182,8 +182,19 @@ function drawMap(f){
     ctx.beginPath(); ctx.moveTo(X(D.x[i-1]), Y(D.y[i-1])); ctx.lineTo(X(D.x[i]), Y(D.y[i])); ctx.stroke();
   }
   const px=X(samp(D.x,f)), py=Y(samp(D.y,f));
+  const hd = (() => {
+    const i = Math.max(0, Math.min(N-2, Math.floor(f)));
+    const dx = D.x[i+1]-D.x[i], dy = D.y[i+1]-D.y[i];
+    return Math.hypot(dx,dy) < 1e-9 ? (D.yaw ? D.yaw[i] : 0) : Math.atan2(dy, dx);
+  })();
+  /* Same heading as HUD mini-map: canvas Y is flipped, so rotate(-heading). */
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(-hd);
   ctx.fillStyle='#111';
-  ctx.beginPath(); ctx.moveTo(px+7,py); ctx.lineTo(px-5,py+4); ctx.lineTo(px-5,py-4); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(9,0); ctx.lineTo(-6,5); ctx.lineTo(-3,0); ctx.lineTo(-6,-5); ctx.closePath();
+  ctx.fill();
+  ctx.restore();
   ctx.fillStyle='#555'; ctx.font='11px sans-serif'; ctx.textAlign='center';
   ctx.fillText('X [m]', w/2, h-4);
 }
