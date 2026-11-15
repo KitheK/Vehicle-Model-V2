@@ -44,6 +44,7 @@ _RUNTIME_PY = (
     "xlsx_kit.py",
     "opentrack_xlsx.py",
     "openvehicle_xlsx.py",
+    "famous_maps.py",
     "qss_hud.html",
     "qss_results.html",
     "qss_studio.html",
@@ -54,6 +55,7 @@ _RUNTIME_PY = (
 
 def pack_runtime(public: Path) -> Path:
     zpath = public / "qss-runtime.zip"
+    track_dir = DEFAULT_MAP.parent
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as zf:
         for name in _RUNTIME_PY:
             src = _HERE / name
@@ -63,9 +65,17 @@ def pack_runtime(public: Path) -> Path:
             (DEFAULT_CAR, "app/database/vehicles/fsae/ubco-2026-ev.xlsx"),
             (DEFAULT_CAR.with_suffix(".xml"), "app/database/vehicles/fsae/ubco-2026-ev.xml"),
             (DEFAULT_MAP, "app/database/tracks/fsae_ev_2026_endurance/fsae_ev_2026_endurance.xlsx"),
+            (
+                track_dir / "official_line.geojson",
+                "app/database/tracks/fsae_ev_2026_endurance/official_line.geojson",
+            ),
         ):
             if src.is_file():
                 zf.write(src, dest)
+        famous = _ROOT / "database" / "tracks" / "famous_maps"
+        if famous.is_dir():
+            for path in famous.glob("*.geojson"):
+                zf.write(path, f"app/database/tracks/famous_maps/{path.name}")
     return zpath
 
 
@@ -103,9 +113,14 @@ def main() -> int:
         )
         pack_runtime(public)
         car = public / "car.glb"
-        src_car = _HERE / "models" / "formula_student.glb"
-        if not car.is_file() and src_car.is_file():
-            shutil.copyfile(src_car, car)
+        for src_car in (
+            _HERE / "models" / "ubco_ev1" / "car.glb",
+            _HERE / "car.glb",
+            _HERE / "models" / "formula_student.glb",
+        ):
+            if src_car.is_file():
+                shutil.copyfile(src_car, car)
+                break
         (public / "404.html").write_text(
             "<!DOCTYPE html><html lang='en'><meta charset='utf-8'/>"
             "<title>Not found</title><p>Not found. "
